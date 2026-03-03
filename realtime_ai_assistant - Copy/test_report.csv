@@ -1,0 +1,5 @@
+Timestamp,Image_Filename,AI_Response,Latency_Seconds,Model_Provider
+16-21-32,debug_captures/img_16-21-32.png,"Hey, doesn't look like we're in Minecraft right now. What are you up to?",27.85,ollama
+16-22-11,debug_captures/img_16-22-11.png,"Alright, looks like we're back in Minecraft!",1.59,ollama
+16-23-37,debug_captures/img_16-23-37.png,Nice diamond find.,2.91,ollama
+16-23-52,debug_captures/img_16-23-52.png,Nice diamond find.,2.87,ollama
