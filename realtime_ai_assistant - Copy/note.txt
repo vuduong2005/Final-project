@@ -19,8 +19,6 @@ cd D:\Applio
 run-applio.bat
 
 
-
-
 rvc_env\Scripts\activate
 
 python -m rvc_python api --port 5050 --models_dir rvc_models --preload-model Maria --device cuda:0 --index_rate 1.0 --pitch 8
@@ -29,3 +27,9 @@ python -m rvc_python api --port 5050 --models_dir rvc_models --preload-model Mar
 .\start_ollama_cpu.ps1
 
 echo $env:CUDA_VISIBLE_DEVICES
+
+
+
+git add -A
+git commit -m "describe what you changed"
+git push
