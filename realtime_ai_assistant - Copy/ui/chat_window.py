@@ -1,172 +1,234 @@
 import tkinter as tk
 from tkinter import scrolledtext
 import threading
-import queue 
+import queue
+from datetime import datetime
+
 from utils.logger import get_logger
-from core.ai_handler import send_chat_message_to_ai 
-import html # Import html for escaping
 
 logger = get_logger()
 
-# --- NEW: Define font settings ---
-FONT_FAMILY = "Arial"
-FONT_SIZE_MAIN = 18
-FONT_SIZE_SYSTEM = 12
-# ---------------------------------
 
 class ChatWindow:
-    def __init__(self, message_queue, app_context):
-        self.message_queue = message_queue 
-        self.app_context = app_context 
-        self.visible = False
-        self.logger_message = "✅ AI Assistant running. Press Ctrl+Alt+G to toggle." 
-
-        # Initialize the Tkinter root
+    """Tkinter-based chat window with dual mode support"""
+    
+    def __init__(self, message_queue: queue.Queue, app_context: dict, user_input_callback=None):
+        """
+        Initialize chat window
+        
+        Args:
+            message_queue: Queue for receiving messages from AI
+            app_context: Application context dictionary
+            user_input_callback: Function to call when user types (optional)
+        """
+        self.message_queue = message_queue
+        self.app_context = app_context
+        self.user_input_callback = user_input_callback
+        
+        logger.info("🖼️  Creating Tkinter chat window...")
+        
+        # Create window
         self.window = tk.Tk()
-        self.window.withdraw() # Start hidden
+        self.window.title("Maria")
+        self.window.geometry("600x400")
+        self.window.configure(bg="#0a0a0a")
+        self.window.attributes("-topmost", True)
+        self.window.attributes("-alpha", 0.70)  # 70% opacity - MORE TRANSPARENT!
         
-        # Force window registration for hotkey
-        self.window.update_idletasks() 
+        # Create UI elements
+        self._create_widgets()
         
-        # --- UI Overlay ---
-        self.window.attributes("-transparentcolor", "pink") 
-        self.window.attributes("-topmost", True) 
-        
-        # --- UI Setup ---
-        self.window.title("Minecraft AI Companion")
-        # --- FIX: Make window bigger ---
-        self.window.geometry("500x400+0+0") # Was 400x300
-        # -------------------------------
-        self.window.resizable(False, False)
-        self.window.config(bg="pink") 
-
-        # 1. Input field (Packed FIRST)
-        self.entry = tk.Entry(
-            self.window, 
-            # --- FIX: Increase font size ---
-            font=(FONT_FAMILY, FONT_SIZE_MAIN), 
-            # -------------------------------
-            bg="#1e1e1e", 
-            fg="#ffffff", 
-            insertbackground="#ffffff", 
-            bd=1, 
-            relief="solid" 
-        )
-        self.entry.pack(fill="x", padx=5, pady=(0, 5), side=tk.BOTTOM) # Pack at the bottom
-        self.entry.bind("<Return>", self._handle_user_input)
-
-        # 2. Chat display area (Packed SECOND, fills remaining space)
-        self.chat_area = scrolledtext.ScrolledText(
-            self.window, 
-            wrap="word", 
-            state="disabled", 
-            # --- FIX: Increase font size ---
-            font=(FONT_FAMILY, FONT_SIZE_MAIN), 
-            # -------------------------------
-            bg="pink", 
-            fg="#ffffff", 
-            bd=0, 
-            relief="flat",
-            highlightthickness=0 
-        )
-        self.chat_area.pack(expand=True, fill="both", padx=5, pady=5, side=tk.TOP) 
-        
-        # Define tags for coloring messages
-        self.chat_area.tag_config("user", foreground="#8be9fd", font=(FONT_FAMILY, FONT_SIZE_MAIN, "bold"))
-        self.chat_area.tag_config("ai", foreground="#50fa7b", font=(FONT_FAMILY, FONT_SIZE_MAIN, "bold"))
-        self.chat_area.tag_config("System", foreground="#ffaa00", font=(FONT_FAMILY, FONT_SIZE_SYSTEM))
-        
-        # Log initial message
-        self.display_message("System", self.logger_message, "System")
-
-        # --- Thread-Safe Polling ---
-        self.window.after(100, self._poll_queue) 
-        self.window.protocol("WM_DELETE_WINDOW", self.hide)
-        
-    def toggle(self):
-        """Toggles the visibility of the chat window."""
-        if self.visible:
-            self.hide()
-        else:
-            self.show()
-
-    def show(self):
-        """Shows the hidden window and sets focus."""
-        self.window.deiconify()
-        self.visible = True
-        self.entry.focus_set() 
-        logger.debug("Chat window shown, focus set.")
-
-    def hide(self):
-        """Hides the chat window."""
-        if self.window:
-            self.window.withdraw()
-            self.visible = False
-            logger.debug("Chat window hidden.")
-
-    def _handle_user_input(self, event=None):
-        """Handles user message from the entry box."""
-        user_text = self.entry.get()
-        if not user_text.strip():
-            return
-
-        self.display_message("You", user_text, "user")
-        self.entry.delete(0, "end")
-        
-        current_screenshot = self.app_context.get('latest_screenshot', None)
-        
-        if current_screenshot is None:
-            self.display_message("System", "Error: No screenshot context. Wait.", "System")
-            return
-            
-        self.display_message("System", "Sending message to AI...", "System")
-
-        threading.Thread(
-            target=send_chat_message_to_ai, 
-            args=(user_text, current_screenshot, self.message_queue), 
+        # Start message polling thread
+        self.polling_thread = threading.Thread(
+            target=self._poll_messages,
             daemon=True,
-            name="ChatThread"
-        ).start() 
-
-    def display_message(self, sender, text, tag_name="ai"):
-        """Displays a message in the chat area in a thread-safe manner."""
-        if self.window is None or not self.window.winfo_exists():
+            name="ChatWindowPoller"
+        )
+        self.polling_thread.start()
+        
+        logger.info("✅ Chat window created")
+    
+    def _create_widgets(self):
+        """Create all UI elements - Simple & Transparent"""
+        
+        # Chat display area (read-only) - SIMPLER, NO TITLE
+        self.chat_display = scrolledtext.ScrolledText(
+            self.window,
+            wrap=tk.WORD,
+            width=65,
+            height=15,
+            font=("Courier", 11),
+            bg="#0a0a0a",
+            fg="#00FF00",
+            insertbackground="#00FF00",
+            relief=tk.FLAT,
+            bd=0,
+            highlightthickness=0
+        )
+        self.chat_display.pack(padx=0, pady=0, fill=tk.BOTH, expand=True)
+        self.chat_display.config(state=tk.DISABLED)
+        
+        # Configure text tags for colors
+        self.chat_display.tag_configure("user", foreground="#00FFFF")
+        self.chat_display.tag_configure("ai", foreground="#00FF00")
+        self.chat_display.tag_configure("system", foreground="#FFFF00")
+        self.chat_display.tag_configure("timestamp", foreground="#666666")
+        
+        # Input field - SIMPLE & CLEAN
+        self.input_field = tk.Entry(
+            self.window,
+            font=("Courier", 10),
+            bg="#0f0f0f",
+            fg="#00FF00",
+            insertbackground="#00FF00",
+            relief=tk.FLAT,
+            bd=0,
+            highlightthickness=0
+        )
+        self.input_field.pack(fill=tk.X, padx=0, pady=0)
+        self.input_field.bind("<Return>", self._on_input_send)
+        
+        # Status bar - MINIMAL
+        self.status_label = tk.Label(
+            self.window,
+            text="Type here... (Ctrl+Alt+G to toggle)",
+            font=("Arial", 7),
+            fg="#555555",
+            bg="#0a0a0a"
+        )
+        self.status_label.pack(fill=tk.X, padx=5, pady=2)
+        
+        # Make window start hidden
+        self.window.withdraw()
+        
+        # Handle window close
+        self.window.protocol("WM_DELETE_WINDOW", self.toggle)
+    
+    def toggle(self):
+        """Toggle window visibility (called by hotkey)"""
+        if self.window.state() == "normal":
+            self.window.withdraw()
+            logger.info("💬 Chat window hidden")
+        else:
+            self.window.deiconify()
+            self.window.lift()
+            self.input_field.focus()
+            logger.info("💬 Chat window shown")
+    
+    def display_message(self, sender: str, message: str, msg_type: str = "ai"):
+        """
+        Display message in chat window (thread-safe)
+        
+        Args:
+            sender: Who sent it ("Maria", "You", "System")
+            message: Message text
+            msg_type: Type for coloring ("ai", "user", "system")
+        """
+        def _add_message():
+            self.chat_display.config(state=tk.NORMAL)
+            
+            timestamp = datetime.now().strftime("%H:%M:%S")
+            
+            # Add to display
+            self.chat_display.insert(tk.END, f"[{timestamp}] ", "timestamp")
+            self.chat_display.insert(tk.END, f"{sender}: ", msg_type)
+            self.chat_display.insert(tk.END, f"{message}\n\n")
+            
+            # Auto-scroll to bottom
+            self.chat_display.see(tk.END)
+            self.chat_display.config(state=tk.DISABLED)
+        
+        # Schedule on main thread
+        try:
+            self.window.after(0, _add_message)
+        except:
+            pass
+    
+    def _on_input_send(self, event=None):
+        """Handle user input submission"""
+        text = self.input_field.get().strip()
+        
+        if not text:
             return
+        
+        # Display user message
+        self.display_message("You", text, "user")
+        
+        # Send to callback if provided
+        if self.user_input_callback:
+            self.user_input_callback(text)
+        
+        # Clear input
+        self.input_field.delete(0, tk.END)
+        
+        logger.info(f"💬 User input: {text}")
+    
+    def _poll_messages(self):
+        """Poll message queue for new messages from AI (thread-safe)"""
+        while True:
+            try:
+                # Check queue (non-blocking)
+                try:
+                    sender, message = self.message_queue.get(timeout=0.5)
+                except queue.Empty:
+                    continue
+                
+                # Display message
+                if sender == "AI":
+                    self.display_message("Maria", message, "ai")
+                    logger.debug(f"💬 AI message displayed: {message}")
+                elif sender == "User":
+                    self.display_message("You", message, "user")
+                elif sender == "System":
+                    self.display_message("System", message, "system")
+                else:
+                    self.display_message(sender, message, "system")
             
+            except Exception as e:
+                logger.error(f"Error in message polling: {e}")
+                continue
+    
+    def update_status(self, status: str):
+        """Update status bar"""
         try:
-            is_disabled = self.chat_area.cget("state") == "disabled"
-            if is_disabled:
-                self.chat_area.config(state="normal")
-            
-            safe_text = html.escape(text) 
-
-            self.chat_area.insert("end", f"{sender}: ", tag_name)
-            self.chat_area.insert("end", f"{safe_text}\n")
-            
-            self.chat_area.see("end")
-            
-            if is_disabled:
-                 self.chat_area.config(state="disabled")
-        except tk.TclError as e:
-            logger.error(f"Tkinter error displaying message: {e}")
-        except Exception as e:
-            logger.error(f"Unexpected error displaying message: {e}")
+            self.status_label.config(text=status)
+            self.window.update_idletasks()
+        except:
+            pass
 
 
-    def _poll_queue(self):
-        """Checks the message queue for new messages from background threads."""
-        if self.window is None: 
-             return
-        try:
-            while True:
-                sender, text = self.message_queue.get_nowait()
-                tag_name = "user" if sender == "You" else ("ai" if sender == "AI" else "System")
-                self.display_message(sender, text, tag_name)
-        except queue.Empty:
-            pass 
-        except Exception as e:
-            logger.error(f"Error polling queue: {e}")
-        finally:
-            if self.window:
-                 self.window.after(100, self._poll_queue)
-
+# Test script
+if __name__ == "__main__":
+    import time
+    
+    # Create test queue and context
+    test_queue = queue.Queue()
+    test_context = {"latest_screenshot": None}
+    
+    def test_callback(msg):
+        print(f"User said: {msg}")
+    
+    # Create window
+    chat = ChatWindow(test_queue, test_context, user_input_callback=test_callback)
+    
+    # Simulate messages
+    def simulate_messages():
+        time.sleep(2)
+        test_queue.put(("AI", "Hey! Ready to play Minecraft?"))
+        time.sleep(2)
+        test_queue.put(("AI", "Just spotted some diamonds! 💎"))
+        time.sleep(2)
+        test_queue.put(("AI", "Watch out for that creeper!"))
+    
+    # Start simulation in thread
+    sim_thread = threading.Thread(target=simulate_messages, daemon=True)
+    sim_thread.start()
+    
+    # Show window
+    chat.window.deiconify()
+    
+    # Run
+    try:
+        chat.window.mainloop()
+    except KeyboardInterrupt:
+        print("Closing...")

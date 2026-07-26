@@ -1,9 +1,9 @@
 Pillow
 pynput
-pytesseract
 requests
-google-generativeai
 mss
 gTTS
 playsound==1.2.2
 mutagen
+ultralytics
+python-dotenv

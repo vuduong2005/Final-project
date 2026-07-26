@@ -1,0 +1,26 @@
+# Secrets
+.env
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+venv/
+env/
+*.egg-info/
+
+# Local run artifacts
+logs/
+debug_captures/
+test_report.csv
+*.wav
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Voice models / environments (not tracked - large binaries)
+*.onnx
+*.onnx.json
+rvc_env/
+rvc_models/

@@ -1,3 +1,31 @@
-bat venv : .\.venv\Scripts\Activate.ps1
+cd "realtime_ai_assistant - Copy"
 
-de run : python main.py
+venv\Scripts\activate
+
+python main.py
+
+
+cd D:\indexTTS
+
+uv run webui.py --fp16
+
+http://127.0.0.1:7860/
+
+
+
+
+cd D:\Applio
+
+run-applio.bat
+
+
+
+
+rvc_env\Scripts\activate
+
+python -m rvc_python api --port 5050 --models_dir rvc_models --preload-model Maria --device cuda:0 --index_rate 1.0 --pitch 8
+
+
+.\start_ollama_cpu.ps1
+
+echo $env:CUDA_VISIBLE_DEVICES
