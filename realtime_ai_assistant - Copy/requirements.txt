@@ -2,8 +2,5 @@ Pillow
 pynput
 requests
 mss
-gTTS
-playsound==1.2.2
-mutagen
-ultralytics
 python-dotenv
+piper-tts
