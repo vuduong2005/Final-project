@@ -1,0 +1,6 @@
+Pillow
+pynput
+requests
+mss
+python-dotenv
+piper-tts
