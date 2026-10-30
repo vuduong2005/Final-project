@@ -44,7 +44,6 @@ SAVE_DELAY_SECONDS = 0.5  # wait this long after the last change before writing 
 
 _lock = threading.RLock()       # guards _values, _listeners, _save_timer
 _file_lock = threading.Lock()   # one file write at a time
-_values = {key: getattr(config, key) for key in SPECS}  # config already applied the saved overrides
 _listeners = {}                 # key -> [callback(new_value), ...]
 _save_timer = None
 
@@ -79,6 +78,22 @@ def _coerce(key: str, value):
         number = int(round(number))
 
     return max(spec["min"], min(spec["max"], number))
+
+
+def _initial_value(key: str):
+    """Starting value: what config.py holds (it already applied the saved
+    overrides), checked the same way as a live update. Out-of-range numbers are
+    clamped; an unusable value (NaN, text) falls back to the default, so a
+    hand-edited config_overrides.json can never crash the capture loop."""
+    saved = getattr(config, key)
+    try:
+        return _coerce(key, saved)
+    except ValueError:
+        logger.warning(f"Saved value for {key} is invalid ({saved!r}), using the default")
+        return config.ADMIN_DEFAULTS[key]
+
+
+_values = {key: _initial_value(key) for key in SPECS}
 
 
 def get(key: str):

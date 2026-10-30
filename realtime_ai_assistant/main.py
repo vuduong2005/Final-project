@@ -188,7 +188,9 @@ def vision_loop(msg_queue: queue.Queue, context: dict, status_window: StatusWind
             timestamp_str = datetime.datetime.now().strftime("%H-%M-%S")
             # Include the date so captures from different days never overwrite each other
             date_str = datetime.datetime.now().strftime("%Y-%m-%d")
-            debug_filename = f"{DEBUG_SCREENSHOT_DIR}/img_{date_str}_{timestamp_str}.png"
+            # Milliseconds too: with the shorter live intervals two captures can fall in the same second
+            millis = datetime.datetime.now().strftime("%f")[:3]
+            debug_filename = f"{DEBUG_SCREENSHOT_DIR}/img_{date_str}_{timestamp_str}_{millis}.png"
 
             try:
                 screenshot.save(debug_filename)
