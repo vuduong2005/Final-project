@@ -20,9 +20,23 @@ logger = get_logger()
 # config._ADMIN_OVERRIDABLE_KEYS) when its consumer is switched over to get().
 
 SPECS = {
+    # Voice
     "TTS_VOLUME": {"type": float, "min": 0.0, "max": 2.0},
     "TTS_SPEED": {"type": float, "min": 0.5, "max": 2.0},
     "TTS_MUTED": {"type": bool},
+    # Timing (seconds)
+    "SCREENSHOT_INTERVAL": {"type": float, "min": 0.1, "max": 5.0},
+    "MIN_ANALYSIS_INTERVAL": {"type": float, "min": 0.5, "max": 30.0},
+    # Detection: which Roboflow models run, and how sure a detection must be
+    "USE_GENERAL_MODEL": {"type": bool},
+    "USE_MOBS_MODEL": {"type": bool},
+    "USE_BLOCKS_MODEL": {"type": bool},
+    "ROBOFLOW_CONFIDENCE_PERCENT": {"type": int, "min": 5, "max": 100},  # general model, 0-100
+    "MOB_CONFIDENCE_THRESHOLD": {"type": float, "min": 0.05, "max": 1.0},
+    "BLOCK_CONFIDENCE_THRESHOLD": {"type": float, "min": 0.05, "max": 1.0},
+    # Frame buffer (short-term memory trends)
+    "FRAME_BUFFER_MOVEMENT_THRESHOLD": {"type": int, "min": 5, "max": 300},  # pixels
+    "FRAME_BUFFER_CONFIDENCE_THRESHOLD": {"type": float, "min": 0.01, "max": 0.5},
 }
 
 OVERRIDES_PATH = config.CONFIG_OVERRIDES_PATH
@@ -53,11 +67,16 @@ def _coerce(key: str, value):
     if isinstance(value, bool):  # bool is a subclass of int; do not accept it as a number
         raise ValueError(f"{key} must be a number, got {value!r}")
     try:
-        number = spec["type"](value)
+        number = float(value)
     except (TypeError, ValueError):
         raise ValueError(f"{key} must be a number, got {value!r}")
     if number != number:  # NaN
         raise ValueError(f"{key} must be a number, got NaN")
+    if number in (float("inf"), float("-inf")):
+        raise ValueError(f"{key} must be a finite number, got {value!r}")
+
+    if spec["type"] is int:
+        number = int(round(number))
 
     return max(spec["min"], min(spec["max"], number))
 

@@ -299,6 +299,9 @@ _ADMIN_OVERRIDABLE_KEYS = {
     "TTS_SPEED": float,
     "TTS_VOLUME": float,
     "TTS_MUTED": _as_bool,
+    "USE_GENERAL_MODEL": _as_bool,
+    "USE_MOBS_MODEL": _as_bool,
+    "USE_BLOCKS_MODEL": _as_bool,
     "FRAME_BUFFER_MOVEMENT_THRESHOLD": int,
     "FRAME_BUFFER_CONFIDENCE_THRESHOLD": float,
 }

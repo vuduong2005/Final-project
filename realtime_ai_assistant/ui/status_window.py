@@ -14,21 +14,23 @@ from core import settings
 
 logger = get_logger()
 
-# Keys the restart-required config panel is allowed to edit. Each key must also
-# be listed in _ADMIN_OVERRIDABLE_KEYS in config.py. The TTS settings are not
-# here: they are live and handled by core/settings.py (see the Voice section).
+# Keys of the restart-required config panel. Each key must also be listed in
+# _ADMIN_OVERRIDABLE_KEYS in config.py. Everything else (voice, timing,
+# detection, frame buffer) is live and handled by core/settings.py, with its
+# own sections in this window.
 ADMIN_CONFIG_FIELDS = {
-    "ROBOFLOW_CONFIDENCE_PERCENT": {"type": "int", "label": "Roboflow Confidence %", "group": "Detection"},
-    "MOB_CONFIDENCE_THRESHOLD": {"type": "float", "label": "Mob Confidence Threshold", "group": "Detection"},
-    "BLOCK_CONFIDENCE_THRESHOLD": {"type": "float", "label": "Block Confidence Threshold", "group": "Detection"},
-    "SCREENSHOT_INTERVAL": {"type": "float", "label": "Screenshot Interval (s)", "group": "Timing"},
-    "MIN_ANALYSIS_INTERVAL": {"type": "float", "label": "Min Analysis Interval (s)", "group": "Timing"},
     "STARTUP_DELAY": {"type": "float", "label": "Startup Delay (s)", "group": "Timing"},
-    "FRAME_BUFFER_MOVEMENT_THRESHOLD": {"type": "int", "label": "Movement Threshold (px)", "group": "Frame Buffer"},
-    "FRAME_BUFFER_CONFIDENCE_THRESHOLD": {"type": "float", "label": "Confidence Trend Threshold", "group": "Frame Buffer"},
 }
 
-ADMIN_CONFIG_GROUP_ORDER = ["Detection", "Timing", "Frame Buffer"]
+ADMIN_CONFIG_GROUP_ORDER = ["Timing"]
+
+# Live detection settings shown in the DETECTION & TIMING section
+DETECTION_SLIDER_KEYS = (
+    "SCREENSHOT_INTERVAL", "MIN_ANALYSIS_INTERVAL",
+    "ROBOFLOW_CONFIDENCE_PERCENT", "MOB_CONFIDENCE_THRESHOLD", "BLOCK_CONFIDENCE_THRESHOLD",
+    "FRAME_BUFFER_MOVEMENT_THRESHOLD", "FRAME_BUFFER_CONFIDENCE_THRESHOLD",
+)
+MODEL_KEYS = ("USE_GENERAL_MODEL", "USE_MOBS_MODEL", "USE_BLOCKS_MODEL")
 
 CONFIG_OVERRIDES_PATH = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "config_overrides.json"
@@ -111,6 +113,7 @@ class StatusWindow:
     # ------------------------------------------------------------------
     def _create_widgets(self):
         pad = {"padx": 10, "pady": 6}
+        self._sections = {}  # collapsible sections, see _create_collapsible_section
 
         # --- Header ---
         header = tk.Label(
@@ -127,7 +130,7 @@ class StatusWindow:
         tk.Label(
             activity_frame, text="CURRENT ACTIVITY",
             font=("Consolas", 8), fg="#888888", bg="#151515"
-        ).pack(anchor="w", padx=10, pady=(8, 0))
+        ).pack(anchor="w", padx=10, pady=(4, 0))
 
         self.activity_label = tk.Label(
             activity_frame, text="🧭  Exploring",
@@ -143,7 +146,7 @@ class StatusWindow:
         tk.Label(
             threat_frame, text="THREAT LEVEL",
             font=("Consolas", 8), fg="#888888", bg="#151515"
-        ).pack(anchor="w", padx=10, pady=(8, 0))
+        ).pack(anchor="w", padx=10, pady=(4, 0))
 
         threat_row = tk.Frame(threat_frame, bg="#151515")
         threat_row.pack(fill=tk.X, padx=10, pady=(0, 10))
@@ -166,7 +169,7 @@ class StatusWindow:
         ).pack(anchor="w", padx=14)
 
         self.detections_box = tk.Listbox(
-            self.window, height=6,
+            self.window, height=4,
             font=("Consolas", 10),
             bg="#0f0f0f", fg="#00FFAA",
             relief=tk.FLAT, bd=0, highlightthickness=0,
@@ -180,7 +183,7 @@ class StatusWindow:
             font=("Consolas", 8), fg="#888888", bg="#0a0a0a"
         ).pack(anchor="w", padx=14)
 
-        log_frame = tk.Frame(self.window, bg="#0a0a0a", height=140)
+        log_frame = tk.Frame(self.window, bg="#0a0a0a", height=80)
         log_frame.pack(fill=tk.X, padx=10, pady=(2, 10))
         log_frame.pack_propagate(False)
 
@@ -198,6 +201,9 @@ class StatusWindow:
 
         # --- Live voice settings (apply immediately) ---
         self._create_live_section()
+
+        # --- Live detection / timing settings (collapsed by default) ---
+        self._create_detection_section()
 
         # --- Admin Config Panel (restart required, collapsed by default) ---
         self._create_config_section()
@@ -252,7 +258,8 @@ class StatusWindow:
         )
         self.live_status.pack(side=tk.LEFT, padx=6)
 
-    def _add_live_slider(self, parent, key: str, label: str, fmt):
+    def _add_live_slider(self, parent, key: str, label: str, fmt,
+                         resolution: float = 0.05, label_width: int = 7):
         """One labelled slider bound to a setting. Limits come from settings.SPECS."""
         spec = settings.SPECS[key]
 
@@ -261,7 +268,7 @@ class StatusWindow:
 
         tk.Label(
             row, text=label, font=("Consolas", 9), fg="#CCCCCC",
-            bg="#151515", width=7, anchor="w"
+            bg="#151515", width=label_width, anchor="w"
         ).pack(side=tk.LEFT)
 
         var = tk.DoubleVar(value=settings.get(key))
@@ -271,8 +278,8 @@ class StatusWindow:
         )
 
         scale = tk.Scale(
-            row, variable=var, from_=spec["min"], to=spec["max"], resolution=0.05,
-            orient=tk.HORIZONTAL, showvalue=False, bg="#151515", fg="#CCCCCC",
+            row, variable=var, from_=spec["min"], to=spec["max"], resolution=resolution,
+            orient=tk.HORIZONTAL, showvalue=False, width=10, bg="#151515", fg="#CCCCCC",
             troughcolor="#0f0f0f", highlightthickness=0, bd=0,
             activebackground="#00FFAA", sliderrelief=tk.FLAT
         )
@@ -314,12 +321,155 @@ class StatusWindow:
 
     def _on_reset_voice(self):
         """Put volume, speed and mute back to the defaults from config.py."""
-        for key, (var, fmt, value_label) in self.live_sliders.items():
+        for key in ("TTS_VOLUME", "TTS_SPEED"):
+            var, fmt, value_label = self.live_sliders[key]
             value = settings.reset(key)
             var.set(value)
             value_label.config(text=fmt(value))
         self.mute_var.set(settings.reset("TTS_MUTED"))
         self._set_live_status("Voice settings reset")
+
+    # ------------------------------------------------------------------
+    # Live detection / timing settings (apply immediately, no restart)
+    # ------------------------------------------------------------------
+    def _create_detection_section(self):
+        """Capture speed, which Roboflow models run, confidence thresholds and
+        frame-buffer tuning. Every change goes through core/settings.py and is
+        picked up on the next capture / detection cycle."""
+        frame = self._create_collapsible_section(
+            "detection", "DETECTION & TIMING (LIVE)", "#00FFAA"
+        )
+
+        # --- Timing ---
+        tk.Label(
+            frame, text="TIMING", font=("Consolas", 8, "bold"), fg="#888888", bg="#151515"
+        ).pack(anchor="w", padx=10, pady=(4, 0))
+        self._add_live_slider(frame, "SCREENSHOT_INTERVAL", "Capture", lambda v: f"{v:.1f}s",
+                              resolution=0.1, label_width=9)
+        self._add_live_slider(frame, "MIN_ANALYSIS_INTERVAL", "Analyze", lambda v: f"{v:.1f}s",
+                              resolution=0.5, label_width=9)
+
+        # --- Which Roboflow models run (turning one off also saves API calls) ---
+        header_row = tk.Frame(frame, bg="#151515")
+        header_row.pack(fill=tk.X, padx=10, pady=(4, 0))
+        tk.Label(
+            header_row, text="MODELS", font=("Consolas", 8, "bold"), fg="#888888", bg="#151515"
+        ).pack(side=tk.LEFT)
+        self.detect_status = tk.Label(
+            header_row, text="", font=("Consolas", 8), fg="#00FF00", bg="#151515"
+        )
+        self.detect_status.pack(side=tk.RIGHT)
+
+        model_row = tk.Frame(frame, bg="#151515")
+        model_row.pack(fill=tk.X, padx=10, pady=2)
+        self.model_vars = {}
+        for key, text in zip(MODEL_KEYS, ("General", "Mobs", "Blocks")):
+            var = tk.BooleanVar(value=settings.get(key))
+            tk.Checkbutton(
+                model_row, text=text, variable=var,
+                command=lambda k=key: self._on_model_toggle(k),
+                font=("Consolas", 9), fg="#CCCCCC", bg="#151515",
+                activebackground="#151515", activeforeground="#CCCCCC",
+                selectcolor="#0f0f0f", highlightthickness=0, bd=0
+            ).pack(side=tk.LEFT, padx=(0, 12))
+            self.model_vars[key] = var
+
+        tk.Button(
+            model_row, text="Reset detection", font=("Consolas", 9, "bold"),
+            bg="#00332A", fg="#00FFAA", activebackground="#004D3D",
+            activeforeground="#00FFAA", relief=tk.FLAT, bd=0,
+            padx=8, command=self._on_reset_detection
+        ).pack(side=tk.RIGHT)
+
+        # --- Confidence thresholds ---
+        tk.Label(
+            frame, text="CONFIDENCE (HOW SURE A DETECTION MUST BE)",
+            font=("Consolas", 8, "bold"), fg="#888888", bg="#151515"
+        ).pack(anchor="w", padx=10, pady=(4, 0))
+        self._add_live_slider(frame, "ROBOFLOW_CONFIDENCE_PERCENT", "General", lambda v: f"{int(round(v))}%",
+                              resolution=1, label_width=9)
+        self._add_live_slider(frame, "MOB_CONFIDENCE_THRESHOLD", "Mobs", lambda v: f"{v:.2f}",
+                              resolution=0.05, label_width=9)
+        self._add_live_slider(frame, "BLOCK_CONFIDENCE_THRESHOLD", "Blocks", lambda v: f"{v:.2f}",
+                              resolution=0.05, label_width=9)
+
+        # --- Frame buffer tuning ---
+        tk.Label(
+            frame, text="FRAME BUFFER (ADVANCED)", font=("Consolas", 8, "bold"),
+            fg="#888888", bg="#151515"
+        ).pack(anchor="w", padx=10, pady=(4, 0))
+        self._add_live_slider(frame, "FRAME_BUFFER_MOVEMENT_THRESHOLD", "Movement", lambda v: f"{int(round(v))}px",
+                              resolution=5, label_width=9)
+        self._add_live_slider(frame, "FRAME_BUFFER_CONFIDENCE_THRESHOLD", "Trend", lambda v: f"{v:.2f}",
+                              resolution=0.01, label_width=9)
+
+        tk.Frame(frame, height=6, bg="#151515").pack(fill=tk.X)  # a little breathing room at the bottom
+
+    def _on_model_toggle(self, key: str):
+        """Turn a Roboflow model on / off. At least one has to stay on, otherwise
+        nothing would ever be detected."""
+        var = self.model_vars[key]
+        if not any(v.get() for v in self.model_vars.values()):
+            var.set(True)
+            self.detect_status.config(text="Keep at least one model on", fg="#FF9500")
+            return
+        settings.update(key, bool(var.get()))
+        self.detect_status.config(text="")
+
+    def _on_reset_detection(self):
+        """Put every detection / timing / frame-buffer setting back to its default."""
+        for key in DETECTION_SLIDER_KEYS:
+            var, fmt, value_label = self.live_sliders[key]
+            value = settings.reset(key)
+            var.set(value)
+            value_label.config(text=fmt(value))
+        for key, var in self.model_vars.items():
+            var.set(settings.reset(key))
+        self.detect_status.config(text="Detection settings reset", fg="#00FF00")
+
+    # ------------------------------------------------------------------
+    # Collapsible sections (only one open at a time)
+    # ------------------------------------------------------------------
+    def _create_collapsible_section(self, key: str, title: str, color: str):
+        """Clickable header plus a body frame that starts hidden. Opening one
+        section closes the others, so the window stays short enough for the
+        screen. Returns the body frame; put the section's widgets inside it."""
+        header = tk.Label(
+            self.window, text=f"▶ {title}", font=("Consolas", 9, "bold"),
+            fg=color, bg="#0a0a0a", cursor="hand2", anchor="w"
+        )
+        header.pack(fill=tk.X, padx=10, pady=(4, 0))
+        header.bind("<Button-1>", lambda event, k=key: self._toggle_section(k))
+
+        # The container keeps its place in the window; only the body inside is
+        # shown or hidden, so the footer stays at the bottom.
+        container = tk.Frame(self.window, bg="#0a0a0a")
+        container.pack(fill=tk.X)
+        body = tk.Frame(container, bg="#151515", bd=1, relief=tk.FLAT)
+
+        self._sections[key] = {
+            "title": title, "header": header, "container": container,
+            "body": body, "visible": False,
+        }
+        return body
+
+    def _toggle_section(self, key: str):
+        """Open the clicked section (or close it if open) and close all others."""
+        for other_key, section in self._sections.items():
+            should_show = (other_key == key) and not section["visible"]
+            if should_show == section["visible"]:
+                continue
+            if should_show:
+                section["body"].pack(fill=tk.X, padx=10, pady=(4, 8))
+                arrow = "▼"
+            else:
+                section["body"].pack_forget()
+                # A frame with no children keeps its old size in Tk, so shrink it by hand
+                section["container"].config(height=1)
+                arrow = "▶"
+            section["visible"] = should_show
+            section["header"].config(text=f"{arrow} {section['title']}")
+        self._fit_height()
 
     # ------------------------------------------------------------------
     # Admin Config Panel (restart-to-apply)
@@ -331,25 +481,10 @@ class StatusWindow:
         current_values = self._load_config_field_values()
         self.config_vars = {}  # key -> tk.Variable
 
-        # --- Section header (click to expand / collapse) ---
-        header_frame = tk.Frame(self.window, bg="#0a0a0a")
-        header_frame.pack(fill=tk.X, padx=10, pady=(4, 0))
-
-        self._advanced_title = tk.Label(
-            header_frame, text="▶ ADVANCED CONFIG (RESTART REQUIRED)",
-            font=("Consolas", 9, "bold"), fg="#FF9500", bg="#0a0a0a", cursor="hand2"
+        # --- Collapsible header + body (collapsed by default) ---
+        config_frame = self._create_collapsible_section(
+            "advanced", "ADVANCED CONFIG (RESTART REQUIRED)", "#FF9500"
         )
-        self._advanced_title.pack(anchor="w")
-        self._advanced_title.bind("<Button-1>", lambda event: self._toggle_advanced())
-
-        # The container always keeps its place in the window; only the config
-        # frame inside it is shown or hidden, so the footer stays at the bottom.
-        self._advanced_container = tk.Frame(self.window, bg="#0a0a0a")
-        self._advanced_container.pack(fill=tk.X)
-        self._advanced_visible = False  # collapsed by default to save room
-
-        config_frame = tk.Frame(self._advanced_container, bg="#151515", bd=1, relief=tk.FLAT)
-        self._advanced_body = config_frame
 
         # Group fields in the order defined in ADMIN_CONFIG_GROUP_ORDER
         for group_name in ADMIN_CONFIG_GROUP_ORDER:
@@ -411,19 +546,6 @@ class StatusWindow:
         self.window.update_idletasks()
         height = min(self.window.winfo_reqheight(), self.window.winfo_screenheight() - 40)
         self.window.geometry(f"520x{height}")
-
-    def _toggle_advanced(self):
-        """Expand / collapse the restart-required config panel."""
-        if self._advanced_visible:
-            self._advanced_body.pack_forget()
-            # A frame with no children keeps its old size in Tk, so shrink it by hand
-            self._advanced_container.config(height=1)
-            self._advanced_title.config(text="▶ ADVANCED CONFIG (RESTART REQUIRED)")
-        else:
-            self._advanced_body.pack(fill=tk.X, padx=10, pady=(4, 8))
-            self._advanced_title.config(text="▼ ADVANCED CONFIG (RESTART REQUIRED)")
-        self._advanced_visible = not self._advanced_visible
-        self._fit_height()
 
     def _load_config_field_values(self) -> dict:
         """Start from config.py's hardcoded defaults, then layer any values
