@@ -27,3 +27,6 @@ rvc_models/
 
 # Personal notes
 note.txt
+
+# Local Claude Code files (agents etc.), not shared
+.claude/
