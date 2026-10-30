@@ -10,11 +10,13 @@ from collections import deque
 
 from utils.logger import get_logger
 import config as config_module
+from core import settings
 
 logger = get_logger()
 
-# Keys the admin config panel is allowed to edit. Must match
-# _ADMIN_OVERRIDABLE_KEYS in config.py.
+# Keys the restart-required config panel is allowed to edit. Each key must also
+# be listed in _ADMIN_OVERRIDABLE_KEYS in config.py. The TTS settings are not
+# here: they are live and handled by core/settings.py (see the Voice section).
 ADMIN_CONFIG_FIELDS = {
     "ROBOFLOW_CONFIDENCE_PERCENT": {"type": "int", "label": "Roboflow Confidence %", "group": "Detection"},
     "MOB_CONFIDENCE_THRESHOLD": {"type": "float", "label": "Mob Confidence Threshold", "group": "Detection"},
@@ -22,12 +24,11 @@ ADMIN_CONFIG_FIELDS = {
     "SCREENSHOT_INTERVAL": {"type": "float", "label": "Screenshot Interval (s)", "group": "Timing"},
     "MIN_ANALYSIS_INTERVAL": {"type": "float", "label": "Min Analysis Interval (s)", "group": "Timing"},
     "STARTUP_DELAY": {"type": "float", "label": "Startup Delay (s)", "group": "Timing"},
-    "TTS_SPEED": {"type": "float", "label": "TTS Speed", "group": "TTS"},
     "FRAME_BUFFER_MOVEMENT_THRESHOLD": {"type": "int", "label": "Movement Threshold (px)", "group": "Frame Buffer"},
     "FRAME_BUFFER_CONFIDENCE_THRESHOLD": {"type": "float", "label": "Confidence Trend Threshold", "group": "Frame Buffer"},
 }
 
-ADMIN_CONFIG_GROUP_ORDER = ["Detection", "Timing", "TTS", "Frame Buffer"]
+ADMIN_CONFIG_GROUP_ORDER = ["Detection", "Timing", "Frame Buffer"]
 
 CONFIG_OVERRIDES_PATH = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "config_overrides.json"
@@ -91,6 +92,7 @@ class StatusWindow:
         self.window.attributes("-alpha", 0.85)
 
         self._create_widgets()
+        self._fit_height()
 
         self.window.protocol("WM_DELETE_WINDOW", self.toggle)
         self.window.withdraw()  # start hidden
@@ -194,7 +196,10 @@ class StatusWindow:
         self.log_box.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         scrollbar.config(command=self.log_box.yview)
 
-        # --- Admin Config Panel ---
+        # --- Live voice settings (apply immediately) ---
+        self._create_live_section()
+
+        # --- Admin Config Panel (restart required, collapsed by default) ---
         self._create_config_section()
 
         # --- Footer ---
@@ -203,6 +208,118 @@ class StatusWindow:
             font=("Arial", 7), fg="#444444", bg="#0a0a0a"
         )
         self.status_label.pack(fill=tk.X, padx=10, pady=(0, 6))
+
+    # ------------------------------------------------------------------
+    # Live settings (apply immediately, no restart)
+    # ------------------------------------------------------------------
+    def _create_live_section(self):
+        """Volume / speed sliders, mute and test voice. Every change goes through
+        core/settings.py and applies to the next line Maria speaks."""
+        tk.Label(
+            self.window, text="VOICE (LIVE — APPLIES IMMEDIATELY)",
+            font=("Consolas", 9, "bold"), fg="#00FFAA", bg="#0a0a0a"
+        ).pack(anchor="w", padx=10, pady=(4, 0))
+
+        frame = tk.Frame(self.window, bg="#151515", bd=1, relief=tk.FLAT)
+        frame.pack(fill=tk.X, padx=10, pady=(4, 8))
+
+        self.live_sliders = {}  # key -> (tk.DoubleVar, format function, value label)
+        self._add_live_slider(frame, "TTS_VOLUME", "Volume", lambda v: f"{int(round(v * 100))}%")
+        self._add_live_slider(frame, "TTS_SPEED", "Speed", lambda v: f"{v:.2f}x")
+
+        self.mute_var = tk.BooleanVar(value=settings.get("TTS_MUTED"))
+        tk.Checkbutton(
+            frame, text="Mute Maria's voice", variable=self.mute_var,
+            command=self._on_mute_toggle, font=("Consolas", 9),
+            fg="#CCCCCC", bg="#151515", activebackground="#151515",
+            activeforeground="#CCCCCC", selectcolor="#0f0f0f",
+            highlightthickness=0, bd=0
+        ).pack(anchor="w", padx=10, pady=(4, 2))
+
+        button_row = tk.Frame(frame, bg="#151515")
+        button_row.pack(fill=tk.X, padx=10, pady=(4, 8))
+
+        for text, command in (("Test voice", self._on_test_voice), ("Reset voice", self._on_reset_voice)):
+            tk.Button(
+                button_row, text=text, font=("Consolas", 9, "bold"),
+                bg="#00332A", fg="#00FFAA", activebackground="#004D3D",
+                activeforeground="#00FFAA", relief=tk.FLAT, bd=0,
+                padx=8, command=command
+            ).pack(side=tk.LEFT, padx=(0, 6))
+
+        self.live_status = tk.Label(
+            button_row, text="", font=("Consolas", 8), fg="#00FF00", bg="#151515"
+        )
+        self.live_status.pack(side=tk.LEFT, padx=6)
+
+    def _add_live_slider(self, parent, key: str, label: str, fmt):
+        """One labelled slider bound to a setting. Limits come from settings.SPECS."""
+        spec = settings.SPECS[key]
+
+        row = tk.Frame(parent, bg="#151515")
+        row.pack(fill=tk.X, padx=10, pady=2)
+
+        tk.Label(
+            row, text=label, font=("Consolas", 9), fg="#CCCCCC",
+            bg="#151515", width=7, anchor="w"
+        ).pack(side=tk.LEFT)
+
+        var = tk.DoubleVar(value=settings.get(key))
+        value_label = tk.Label(
+            row, text=fmt(var.get()), font=("Consolas", 9, "bold"),
+            fg="#00FF00", bg="#151515", width=6, anchor="e"
+        )
+
+        scale = tk.Scale(
+            row, variable=var, from_=spec["min"], to=spec["max"], resolution=0.05,
+            orient=tk.HORIZONTAL, showvalue=False, bg="#151515", fg="#CCCCCC",
+            troughcolor="#0f0f0f", highlightthickness=0, bd=0,
+            activebackground="#00FFAA", sliderrelief=tk.FLAT
+        )
+        scale.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=6)
+        value_label.pack(side=tk.LEFT)
+
+        # Attach the callback last so building the widget does not trigger it
+        scale.config(command=lambda raw, k=key: self._on_live_slider(k, raw))
+        self.live_sliders[key] = (var, fmt, value_label)
+
+    def _on_live_slider(self, key: str, raw):
+        """Slider moved: apply the new value straight away."""
+        try:
+            applied = settings.update(key, round(float(raw), 2))
+        except ValueError as e:
+            logger.error(f"Invalid value for {key}: {e}")
+            return
+        _, fmt, value_label = self.live_sliders[key]
+        value_label.config(text=fmt(applied))
+
+    def _on_mute_toggle(self):
+        settings.update("TTS_MUTED", bool(self.mute_var.get()))
+
+    def _set_live_status(self, text: str, color: str = "#00FF00"):
+        self.live_status.config(text=text, fg=color)
+
+    def _on_test_voice(self):
+        """Speak a sample line with the current volume / speed."""
+        if settings.get("TTS_MUTED"):
+            self._set_live_status("Muted - untick Mute to hear it", "#FF9500")
+            return
+        try:
+            from core.tts import speak_test  # imported here so this window can run on its own
+            speak_test()
+            self._set_live_status("Playing test line...")
+        except Exception as e:
+            logger.error(f"Test voice failed: {e}", exc_info=True)
+            self._set_live_status("Test voice failed (see log)", "#FF3B30")
+
+    def _on_reset_voice(self):
+        """Put volume, speed and mute back to the defaults from config.py."""
+        for key, (var, fmt, value_label) in self.live_sliders.items():
+            value = settings.reset(key)
+            var.set(value)
+            value_label.config(text=fmt(value))
+        self.mute_var.set(settings.reset("TTS_MUTED"))
+        self._set_live_status("Voice settings reset")
 
     # ------------------------------------------------------------------
     # Admin Config Panel (restart-to-apply)
@@ -214,17 +331,25 @@ class StatusWindow:
         current_values = self._load_config_field_values()
         self.config_vars = {}  # key -> tk.Variable
 
-        # --- Section header ---
+        # --- Section header (click to expand / collapse) ---
         header_frame = tk.Frame(self.window, bg="#0a0a0a")
         header_frame.pack(fill=tk.X, padx=10, pady=(4, 0))
 
-        tk.Label(
-            header_frame, text="CONFIG (ADMIN — RESTART REQUIRED)",
-            font=("Consolas", 9, "bold"), fg="#FF9500", bg="#0a0a0a"
-        ).pack(anchor="w")
+        self._advanced_title = tk.Label(
+            header_frame, text="▶ ADVANCED CONFIG (RESTART REQUIRED)",
+            font=("Consolas", 9, "bold"), fg="#FF9500", bg="#0a0a0a", cursor="hand2"
+        )
+        self._advanced_title.pack(anchor="w")
+        self._advanced_title.bind("<Button-1>", lambda event: self._toggle_advanced())
 
-        config_frame = tk.Frame(self.window, bg="#151515", bd=1, relief=tk.FLAT)
-        config_frame.pack(fill=tk.X, padx=10, pady=(4, 8))
+        # The container always keeps its place in the window; only the config
+        # frame inside it is shown or hidden, so the footer stays at the bottom.
+        self._advanced_container = tk.Frame(self.window, bg="#0a0a0a")
+        self._advanced_container.pack(fill=tk.X)
+        self._advanced_visible = False  # collapsed by default to save room
+
+        config_frame = tk.Frame(self._advanced_container, bg="#151515", bd=1, relief=tk.FLAT)
+        self._advanced_body = config_frame
 
         # Group fields in the order defined in ADMIN_CONFIG_GROUP_ORDER
         for group_name in ADMIN_CONFIG_GROUP_ORDER:
@@ -279,6 +404,27 @@ class StatusWindow:
         )
         self.config_save_status.pack(side=tk.LEFT, padx=10)
 
+    def _fit_height(self):
+        """Make the window exactly as tall as its content (but never taller than
+        the screen), so collapsing / expanding the config panel leaves no gap
+        and nothing is cut off. Only the size changes, not the position."""
+        self.window.update_idletasks()
+        height = min(self.window.winfo_reqheight(), self.window.winfo_screenheight() - 40)
+        self.window.geometry(f"520x{height}")
+
+    def _toggle_advanced(self):
+        """Expand / collapse the restart-required config panel."""
+        if self._advanced_visible:
+            self._advanced_body.pack_forget()
+            # A frame with no children keeps its old size in Tk, so shrink it by hand
+            self._advanced_container.config(height=1)
+            self._advanced_title.config(text="▶ ADVANCED CONFIG (RESTART REQUIRED)")
+        else:
+            self._advanced_body.pack(fill=tk.X, padx=10, pady=(4, 8))
+            self._advanced_title.config(text="▼ ADVANCED CONFIG (RESTART REQUIRED)")
+        self._advanced_visible = not self._advanced_visible
+        self._fit_height()
+
     def _load_config_field_values(self) -> dict:
         """Start from config.py's hardcoded defaults, then layer any values
         already saved in config_overrides.json on top (so the panel reflects
@@ -325,8 +471,21 @@ class StatusWindow:
             return
 
         try:
+            # Merge into the existing file so the live settings saved by
+            # core/settings.py (volume, speed, mute) are not wiped out.
+            merged = {}
+            if os.path.isfile(CONFIG_OVERRIDES_PATH):
+                try:
+                    with open(CONFIG_OVERRIDES_PATH, "r", encoding="utf-8") as f:
+                        existing = json.load(f)
+                    if isinstance(existing, dict):
+                        merged = existing
+                except Exception as e:
+                    logger.warning(f"Could not read existing config_overrides.json, starting fresh: {e}")
+            merged.update(result)
+
             with open(CONFIG_OVERRIDES_PATH, "w", encoding="utf-8") as f:
-                json.dump(result, f, indent=2)
+                json.dump(merged, f, indent=2)
             self.config_save_status.config(
                 fg="#00FF00",
                 text="✅ Saved. Restart the app to apply."

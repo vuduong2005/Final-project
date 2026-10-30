@@ -179,6 +179,9 @@ TTS_SPEED = 1.0
 # Applied by scaling the raw audio samples after Piper generates them.
 TTS_VOLUME = 1.0
 
+# Mute: when True, Maria's lines still show in the chat window but are not spoken
+TTS_MUTED = False
+
 # ============================================================================
 # ADVANCED SETTINGS
 # ============================================================================
@@ -276,8 +279,16 @@ PRINT_TIMING = True
 # ADMIN OVERRIDES (config_overrides.json)
 # ============================================================================
 
-# Keys the admin panel (ui/status_window.py) may override, with their type.
-# Must match ADMIN_CONFIG_FIELDS in ui/status_window.py.
+def _as_bool(value):
+    """Accept only real booleans (so the string "false" is not treated as True)."""
+    if not isinstance(value, bool):
+        raise ValueError("expected true/false")
+    return value
+
+
+# Keys that config_overrides.json may override, with their type. Includes every
+# key in ADMIN_CONFIG_FIELDS (ui/status_window.py) plus the live settings
+# managed by core/settings.py.
 _ADMIN_OVERRIDABLE_KEYS = {
     "ROBOFLOW_CONFIDENCE_PERCENT": int,
     "MOB_CONFIDENCE_THRESHOLD": float,
@@ -286,6 +297,8 @@ _ADMIN_OVERRIDABLE_KEYS = {
     "MIN_ANALYSIS_INTERVAL": float,
     "STARTUP_DELAY": float,
     "TTS_SPEED": float,
+    "TTS_VOLUME": float,
+    "TTS_MUTED": _as_bool,
     "FRAME_BUFFER_MOVEMENT_THRESHOLD": int,
     "FRAME_BUFFER_CONFIDENCE_THRESHOLD": float,
 }
@@ -321,6 +334,11 @@ def _apply_admin_overrides():
         except (ValueError, TypeError):
             print(f"[config] Ignoring invalid override for {key}: {saved[key]!r}")
 
+
+# Hard-coded defaults of the overridable keys, captured BEFORE the overrides
+# are applied. core/settings.py uses these for reset() and to decide which
+# values need saving.
+ADMIN_DEFAULTS = {key: globals()[key] for key in _ADMIN_OVERRIDABLE_KEYS}
 
 _apply_admin_overrides()
 

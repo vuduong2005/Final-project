@@ -11,6 +11,7 @@ from core.screenshot import capture_screenshot
 from core.ai_handler import AIHandler
 from core.tts import speak_in_thread
 import core.tts
+from core import settings
 from ui.chat_window import ChatWindow
 from ui.status_window import StatusWindow  
 from config import (
@@ -453,6 +454,7 @@ def main():
         logger.info("🧹 Cleaning up...")
         app_context['running'] = False
         stop_hotkey_listener()
+        settings.flush()  # write any setting changed in the last moment
         _finalize_report()
         logger.info("=" * 70)
         logger.info("👋 MINECRAFT AI COMPANION - STOPPED")

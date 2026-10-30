@@ -11,7 +11,7 @@ import requests
 
 from piper import PiperVoice
 from piper.config import SynthesisConfig
-from config import TTS_VOLUME, TTS_SPEED
+from core.settings import get as get_setting
 
 logger = get_logger()
 
@@ -23,9 +23,6 @@ _tts_engine_ready = True
 # --- Piper (base TTS) config ---
 PIPER_MODEL_PATH = "en_US-amy-medium.onnx"
 
-# Piper's length_scale is the inverse of speed: smaller = faster speech.
-# TTS_SPEED 1.0 = normal, 1.5 = 50% faster. Guard against 0 / negative values.
-LENGTH_SCALE = 1.0 / TTS_SPEED if TTS_SPEED > 0 else 1.0
 NOISE_SCALE = 1.0
 NOISE_W = 1.5
 SENTENCE_SILENCE = 0.2
@@ -41,33 +38,45 @@ SENTENCE_SILENCE = 0.2
 
 # --- Lazy-loaded Piper voice (loaded once, reused) ---
 _piper_voice = None
-_piper_syn_config = None
+_synthesis_fields = None  # field names this Piper version's SynthesisConfig accepts
 
 
 def _get_piper_voice():
     """Load the Piper voice model once and reuse it for every call."""
-    global _piper_voice, _piper_syn_config
+    global _piper_voice, _synthesis_fields
     if _piper_voice is None:
         logger.info(f"🗣️ Loading Piper voice model: {PIPER_MODEL_PATH}")
         _piper_voice = PiperVoice.load(PIPER_MODEL_PATH)
 
         import inspect
-        valid_fields = set(inspect.signature(SynthesisConfig.__init__).parameters.keys())
-        kwargs = {}
-        if "length_scale" in valid_fields:
-            kwargs["length_scale"] = LENGTH_SCALE
-        if "noise_scale" in valid_fields:
-            kwargs["noise_scale"] = NOISE_SCALE
-        if "noise_w" in valid_fields:
-            kwargs["noise_w"] = NOISE_W
-        elif "noise_scale_w" in valid_fields:
-            kwargs["noise_scale_w"] = NOISE_W
-        if "sentence_silence" in valid_fields:
-            kwargs["sentence_silence"] = SENTENCE_SILENCE
+        _synthesis_fields = set(inspect.signature(SynthesisConfig.__init__).parameters.keys())
 
-        _piper_syn_config = SynthesisConfig(**kwargs)
+    return _piper_voice
 
-    return _piper_voice, _piper_syn_config
+
+def _build_synthesis_config():
+    """Build the Piper config for ONE line of speech. Built per call (it is
+    cheap) so a TTS_SPEED change from the admin panel applies to the very next
+    line, with no cache to invalidate. Call _get_piper_voice() first."""
+    # Piper's length_scale is the inverse of speed: smaller = faster speech.
+    # TTS_SPEED 1.0 = normal, 1.5 = 50% faster. core/settings.py limits it to 0.5-2.0.
+    speed = get_setting("TTS_SPEED")
+    length_scale = 1.0 / speed if speed > 0 else 1.0
+
+    valid_fields = _synthesis_fields or set()
+    kwargs = {}
+    if "length_scale" in valid_fields:
+        kwargs["length_scale"] = length_scale
+    if "noise_scale" in valid_fields:
+        kwargs["noise_scale"] = NOISE_SCALE
+    if "noise_w" in valid_fields:
+        kwargs["noise_w"] = NOISE_W
+    elif "noise_scale_w" in valid_fields:
+        kwargs["noise_scale_w"] = NOISE_W
+    if "sentence_silence" in valid_fields:
+        kwargs["sentence_silence"] = SENTENCE_SILENCE
+
+    return SynthesisConfig(**kwargs)
 
 
 # --- RVC health check — DISABLED, kept for future re-enable ---
@@ -83,7 +92,8 @@ def _get_piper_voice():
 def _generate_piper_wav(text: str, piper_wav_path: str) -> bool:
     """Generate base speech audio with Piper. Returns True on success."""
     try:
-        voice, syn_config = _get_piper_voice()
+        voice = _get_piper_voice()
+        syn_config = _build_synthesis_config()
         with wave.open(piper_wav_path, "wb") as wav_file:
             voice.synthesize_wav(text, wav_file, syn_config=syn_config)
         return True
@@ -162,6 +172,14 @@ def speak(text: str):
         logger.warning(f"TTS Engine unavailable, skipping speak: {text}")
         return
 
+    # Muted: also drops lines that were already queued before the mute was switched on
+    if get_setting("TTS_MUTED"):
+        logger.debug(f"TTS muted, skipping: '{text}'")
+        return
+
+    # Read the volume now (not at import) so a change applies to this very line
+    volume = get_setting("TTS_VOLUME")
+
     # Unique filename per call — avoids Windows file-lock conflicts
     call_id = uuid.uuid4().hex[:8]
     piper_wav_path = f"piper_output_{call_id}.wav"
@@ -185,13 +203,13 @@ def speak(text: str):
         # read/write pass entirely when volume is left at the default —
         # no reason to pay that cost on every single line spoken.
         playback_path = piper_wav_path
-        if TTS_VOLUME != 1.0:
-            if _apply_volume(piper_wav_path, volume_wav_path, TTS_VOLUME):
+        if volume != 1.0:
+            if _apply_volume(piper_wav_path, volume_wav_path, volume):
                 playback_path = volume_wav_path
             else:
                 logger.warning("TTS volume scaling failed — playing at original volume")
 
-        logger.debug(f"TTS Worker playing audio (Piper voice, volume={TTS_VOLUME})...")
+        logger.debug(f"TTS Worker playing audio (Piper voice, volume={volume})...")
         # winsound doesn't hold a lingering lock on the file like playsound's
         # MCI backend does on Windows, so we don't hit PermissionError on cleanup.
         winsound.PlaySound(playback_path, winsound.SND_FILENAME)
@@ -254,9 +272,21 @@ def speak_in_thread(text: str):
         logger.warning(f"TTS Engine not ready, skipping queue add: {text}")
         return
 
+    # Muted: do not queue at all (the vision loop pauses captures while the queue is non-empty)
+    if get_setting("TTS_MUTED"):
+        logger.debug(f"TTS muted, not queueing: '{text}'")
+        return
+
     if isinstance(text, str) and text.strip():
         logger.debug(f"Adding to speech queue: '{text}'")
         _speech_queue.put(text)
+
+
+def speak_test():
+    """Speak a short sample line with the current volume / speed settings, so a
+    change can be heard right away (for the admin panel's 'Test voice' button).
+    Does nothing while muted."""
+    speak_in_thread("This is a test of my voice.")
 
 
 def start_tts_worker():
