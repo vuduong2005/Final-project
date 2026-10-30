@@ -43,17 +43,28 @@ def to_crlf(text: str) -> str:
     return text.replace("\r\n", "\n").replace("\n", "\r\n")
 
 
+def check_env_example(path: str):
+    """The example env file must hold no values at all. Any assignment with
+    something after the '=' is rejected, whatever the spelling: KEY=x,
+    KEY = x, export KEY=x or KEY="x"."""
+    with open(path, encoding="utf-8") as f:
+        for number, line in enumerate(f, 1):
+            stripped = line.strip()
+            if not stripped or stripped.startswith("#") or "=" not in stripped:
+                continue
+            value = stripped.split("=", 1)[1].strip().strip("\"'").strip()
+            if value:
+                sys.exit(f"{os.path.basename(path)} line {number} has a value after '='. "
+                         "Remove it before building.")
+
+
 def main():
     missing = [f for f in APP_FILES if not os.path.isfile(os.path.join(APP_DIR, f))]
     missing += [f for f in TESTER_FILES if not os.path.isfile(os.path.join(APP_DIR, "tester", f))]
     if missing:
         sys.exit("Missing files, cannot build: " + ", ".join(missing))
 
-    # Safety check: the example env file must not contain a real key
-    with open(os.path.join(APP_DIR, ".env.example"), encoding="utf-8") as f:
-        for line in f:
-            if line.strip().startswith("ROBOFLOW_API_KEY=") and line.split("=", 1)[1].strip():
-                sys.exit(".env.example contains a key value. Remove it before building.")
+    check_env_example(os.path.join(APP_DIR, ".env.example"))
 
     os.makedirs(OUT_DIR, exist_ok=True)
     stamp = datetime.date.today().strftime("%Y-%m-%d")

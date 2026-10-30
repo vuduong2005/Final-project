@@ -71,13 +71,13 @@ if errorlevel 1 (
     echo [!] Ollama was not found. Install it from https://ollama.com
     echo     then run:  ollama pull llava:7b
 ) else (
-    ollama list 2>nul | findstr /i "llava" >nul
+    ollama list 2>nul | findstr /i /c:"llava:7b" >nul
     if errorlevel 1 (
         echo Ollama is installed but the llava:7b model is missing.
         choice /c YN /m "Download it now, about 4.7 GB"
         if not errorlevel 2 ollama pull llava:7b
     ) else (
-        echo Ollama and the llava model were found.
+        echo Ollama and the llava:7b model were found.
     )
 )
 

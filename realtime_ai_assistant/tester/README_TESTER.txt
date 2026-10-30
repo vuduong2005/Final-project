@@ -34,7 +34,8 @@ WHAT TO TRY
 
 SEND ME
 - What you saw, what broke, and your PC (CPU, GPU, RAM).
-- The newest file in the logs folder (session_....txt). It lists what Maria saw
+- If it would not start: the error text shown in the black window (copy it).
+- The newest file in the logs folder, if there is one (session_....txt). It lists what Maria saw
   and said, plus any messages you typed to her. Read it first if you want to
   remove something.
 

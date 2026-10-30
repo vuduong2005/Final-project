@@ -23,6 +23,7 @@ echo.
 "venv\Scripts\python.exe" main.py
 if errorlevel 1 (
     echo.
-    echo Maria stopped with an error. Please send me the newest file in the logs folder.
+    echo Maria stopped with an error. Please copy the error text shown above and send it to me.
+    echo If there is a logs folder, send the newest file in it too.
     pause
 )
