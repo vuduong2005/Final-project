@@ -46,43 +46,57 @@ class ChatMemory:
         self.history = []  # List of (role, message) tuples
         self.max_history = max_history  # Keep last N messages
         self.activity_context = ""  # Current activity (mining, building, etc.)
-        
+        # Vision thread and chat thread both use this object. RLock (re-entrant)
+        # because add_* calls _trim_history while already holding the lock.
+        # Only list/string work happens under the lock - never network or I/O.
+        self._lock = threading.RLock()
+
         logger.info(f"✅ Chat Memory initialized (max {max_history} messages)")
-    
+
     def add_user_message(self, message: str):
         """Add user message to memory"""
-        self.history.append(("user", message))
-        self._trim_history()
-        logger.debug(f"📝 Memory: User said '{message}' (total: {len(self.history)} messages)")
-    
+        with self._lock:
+            self.history.append(("user", message))
+            self._trim_history()
+            total = len(self.history)
+        logger.debug(f"📝 Memory: User said '{message}' (total: {total} messages)")
+
     def add_ai_message(self, message: str):
         """Add Maria's response to memory"""
-        self.history.append(("maria", message))
-        self._trim_history()
-        logger.debug(f"📝 Memory: Maria said '{message}' (total: {len(self.history)} messages)")
-    
+        with self._lock:
+            self.history.append(("maria", message))
+            self._trim_history()
+            total = len(self.history)
+        logger.debug(f"📝 Memory: Maria said '{message}' (total: {total} messages)")
+
     def set_activity_context(self, activity: str):
         """Track what the player is currently doing"""
-        if activity != self.activity_context:
-            self.activity_context = activity
+        with self._lock:
+            changed = activity != self.activity_context
+            if changed:
+                self.activity_context = activity
+        if changed:
             logger.info(f"🎯 Activity Context: {activity}")
-    
+
     def _trim_history(self):
-        """Keep only recent messages"""
+        """Keep only recent messages (caller must hold self._lock)"""
         if len(self.history) > self.max_history:
             removed = self.history.pop(0)
             logger.debug(f"🗑️  Trimmed old message from memory: {removed}")
-    
+
     def get_conversation_summary(self) -> str:
         """Get formatted conversation history for LLM context"""
-        if not self.history:
+        with self._lock:
+            recent = list(self.history[-6:])  # Last 6 messages, copied under the lock
+
+        if not recent:
             return "No previous conversation"
-        
+
         summary = "Recent conversation:\n"
-        for role, msg in self.history[-6:]:  # Last 6 messages
+        for role, msg in recent:
             prefix = "Player:" if role == "user" else "Maria:"
             summary += f"{prefix} {msg}\n"
-        
+
         return summary
     
     def get_full_context(self) -> str:
@@ -93,8 +107,9 @@ class ChatMemory:
     
     def clear(self):
         """Clear conversation history"""
-        self.history = []
-        self.activity_context = ""
+        with self._lock:
+            self.history = []
+            self.activity_context = ""
         logger.info("🧹 Chat memory cleared")
 
 
@@ -538,7 +553,7 @@ Keep it SHORT (1 sentence, maybe 2) and casual.
         try:
             response = requests.get(f"{self.api_url}/api/tags", timeout=2)
             return response.status_code == 200
-        except:
+        except Exception:
             return False
     
     def detect_activity(self, game_state: str) -> str:

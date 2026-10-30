@@ -141,8 +141,8 @@ class ChatWindow:
         # Schedule on main thread
         try:
             self.window.after(0, _add_message)
-        except:
-            pass
+        except Exception:
+            pass  # window already closed
     
     def _on_input_send(self, event=None):
         """Handle user input submission"""
@@ -193,8 +193,8 @@ class ChatWindow:
         try:
             self.status_label.config(text=status)
             self.window.update_idletasks()
-        except:
-            pass
+        except Exception:
+            pass  # window already closed
 
 
 # Test script

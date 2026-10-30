@@ -137,7 +137,15 @@ def vision_loop(msg_queue: queue.Queue, context: dict, status_window: StatusWind
     
     os.makedirs(DEBUG_SCREENSHOT_DIR, exist_ok=True)
     _initialize_report()
-    
+
+    # Give the player time to switch to the Minecraft window. Waits in short
+    # steps so closing the app during the delay still stops the thread quickly.
+    logger.info(f"⏳ Waiting {STARTUP_DELAY}s before capturing...")
+    logger.info("   (Switch to Minecraft window now)")
+    startup_deadline = time.time() + STARTUP_DELAY
+    while context.get('running', True) and time.time() < startup_deadline:
+        time.sleep(0.2)
+
     last_analysis_time = 0
     min_interval_between_analyses = MIN_ANALYSIS_INTERVAL  # was hardcoded 2.0 — now respects config.py / admin overrides
     
@@ -403,10 +411,8 @@ def main():
     # Initialize Status Window UI
     status_window = StatusWindow(app_context)
     
-    logger.info(f"⏳ Waiting {STARTUP_DELAY}s before starting vision loop...")
-    logger.info("   (Switch to Minecraft window now)")
-    time.sleep(STARTUP_DELAY)
-    
+    # The STARTUP_DELAY wait now happens inside vision_loop (its own thread),
+    # so the windows open immediately instead of freezing the main thread.
     logger.info("🚀 Starting vision loop thread...")
     loop_thread = threading.Thread(
         target=vision_loop,
