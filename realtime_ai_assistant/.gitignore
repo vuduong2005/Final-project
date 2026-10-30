@@ -33,3 +33,6 @@ note.txt
 
 # Tester zip output
 dist/
+
+# Live settings saved by the app (local to each machine)
+config_overrides.json
