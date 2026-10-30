@@ -15,12 +15,10 @@ from core import settings
 from ui.chat_window import ChatWindow
 from ui.status_window import StatusWindow  
 from config import (
-    SCREENSHOT_INTERVAL,
     STARTUP_DELAY,
     SCREENSHOT_SEQUENCE_LENGTH,
     DEBUG_SCREENSHOT_DIR,
-    DEBUG_SCREENSHOT_MAX_FILES,
-    MIN_ANALYSIS_INTERVAL
+    DEBUG_SCREENSHOT_MAX_FILES
 )
 from utils.logger import get_logger
 
@@ -148,14 +146,20 @@ def vision_loop(msg_queue: queue.Queue, context: dict, status_window: StatusWind
         time.sleep(0.2)
 
     last_analysis_time = 0
-    min_interval_between_analyses = MIN_ANALYSIS_INTERVAL  # was hardcoded 2.0 — now respects config.py / admin overrides
-    
-    logger.info("🎮 Vision loop started - capturing screenshots every 0.5s")
+    # Both values are re-read at the top of every cycle (live settings)
+    min_interval_between_analyses = settings.get("MIN_ANALYSIS_INTERVAL")
+    capture_interval = settings.get("SCREENSHOT_INTERVAL")
+
+    logger.info(f"🎮 Vision loop started - capturing screenshots every {capture_interval}s")
     logger.info("📸 FrameBuffer will auto-analyze when 3 frames are ready")
     logger.info("🔍 Using 3 Roboflow models: General + Mobs + Blocks")
     
     while context.get('running', True):
         try:
+            # Pick up any change made in the Status window since the last cycle
+            capture_interval = settings.get("SCREENSHOT_INTERVAL")
+            min_interval_between_analyses = settings.get("MIN_ANALYSIS_INTERVAL")
+
             if not core.tts._speech_queue.empty():
                 logger.debug("🔊 TTS playing, skipping capture...")
                 time.sleep(0.5)
@@ -165,7 +169,7 @@ def vision_loop(msg_queue: queue.Queue, context: dict, status_window: StatusWind
             screenshot = capture_screenshot()
             if not screenshot:
                 logger.warning("⚠️  Failed to capture screenshot")
-                time.sleep(SCREENSHOT_INTERVAL)
+                time.sleep(capture_interval)
                 continue
             
             context['latest_screenshot'] = screenshot
@@ -177,14 +181,16 @@ def vision_loop(msg_queue: queue.Queue, context: dict, status_window: StatusWind
             
             if time_since_last < min_interval_between_analyses:
                 logger.debug(f"⏱️  Waiting {min_interval_between_analyses - time_since_last:.1f}s before next analysis")
-                time.sleep(SCREENSHOT_INTERVAL)
+                time.sleep(capture_interval)
                 continue
             
             # Analyze immediately (FrameBuffer will internally buffer 3 frames)
             timestamp_str = datetime.datetime.now().strftime("%H-%M-%S")
             # Include the date so captures from different days never overwrite each other
             date_str = datetime.datetime.now().strftime("%Y-%m-%d")
-            debug_filename = f"{DEBUG_SCREENSHOT_DIR}/img_{date_str}_{timestamp_str}.png"
+            # Milliseconds too: with the shorter live intervals two captures can fall in the same second
+            millis = datetime.datetime.now().strftime("%f")[:3]
+            debug_filename = f"{DEBUG_SCREENSHOT_DIR}/img_{date_str}_{timestamp_str}_{millis}.png"
 
             try:
                 screenshot.save(debug_filename)
@@ -273,7 +279,7 @@ def vision_loop(msg_queue: queue.Queue, context: dict, status_window: StatusWind
         except Exception as e:
             logger.error(f"❌ CRITICAL ERROR: {e}", exc_info=True)
         
-        time.sleep(SCREENSHOT_INTERVAL)
+        time.sleep(capture_interval)
     
     logger.info("=" * 70)
     logger.info("👁️  VISION LOOP STOPPED")

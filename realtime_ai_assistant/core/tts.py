@@ -209,6 +209,11 @@ def speak(text: str):
             else:
                 logger.warning("TTS volume scaling failed — playing at original volume")
 
+        # Mute may have been switched on while this line was being generated
+        if get_setting("TTS_MUTED"):
+            logger.debug("TTS muted during synthesis, not playing")
+            return
+
         logger.debug(f"TTS Worker playing audio (Piper voice, volume={volume})...")
         # winsound doesn't hold a lingering lock on the file like playsound's
         # MCI backend does on Windows, so we don't hit PermissionError on cleanup.

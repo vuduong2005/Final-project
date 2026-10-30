@@ -30,3 +30,6 @@ note.txt
 
 # Local Claude Code files (agents etc.), not shared
 .claude/
+
+# Tester zip output
+dist/

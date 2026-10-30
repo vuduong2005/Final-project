@@ -5,6 +5,7 @@ from PIL import Image
 import io
 
 from utils.logger import get_logger
+from core.settings import get as get_setting
 
 logger = get_logger()
 
@@ -183,10 +184,11 @@ class FrameBuffer:
         second_half = sum(confidences[mid:]) / max(1, len(confidences) - mid)
         
         diff = second_half - first_half
+        threshold = get_setting("FRAME_BUFFER_CONFIDENCE_THRESHOLD")  # live setting
         
-        if diff > 0.1:
+        if diff > threshold:
             return 'increasing'
-        elif diff < -0.1:
+        elif diff < -threshold:
             return 'decreasing'
         else:
             return 'stable'
@@ -213,8 +215,8 @@ class FrameBuffer:
         last_distance = distances[-1]
         movement_px = int(first_distance - last_distance)  # Positive = getting closer
         
-        # Threshold: 50 pixels = significant movement
-        MOVEMENT_THRESHOLD = 50
+        # Threshold (pixels) for "significant movement" - live setting
+        MOVEMENT_THRESHOLD = get_setting("FRAME_BUFFER_MOVEMENT_THRESHOLD")
         
         if movement_px > MOVEMENT_THRESHOLD:
             return 'approaching', movement_px

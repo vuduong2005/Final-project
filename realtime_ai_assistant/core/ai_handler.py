@@ -12,22 +12,16 @@ from utils.logger import get_logger
 from config import (
     LLAMA_API_URL,
     LLAMA_MODEL_NAME,
-    ROBOFLOW_CONFIDENCE_PERCENT,
-    ROBOFLOW_CONFIDENCE_THRESHOLD,
     ROBOFLOW_API_KEY,
     ROBOFLOW_GENERAL_URL,
     ROBOFLOW_MOBS_URL,
     ROBOFLOW_BLOCKS_URL,
-    USE_GENERAL_MODEL,
-    USE_MOBS_MODEL,
-    USE_BLOCKS_MODEL,
-    MOB_CONFIDENCE_THRESHOLD,
-    BLOCK_CONFIDENCE_THRESHOLD,
     VISION_TRIGGER_KEYWORDS,
     PROACTIVE_STREAK_SECONDS,
     PROACTIVE_CHAT_COOLDOWN_SECONDS,
 )
 from core.frame_buffer import FrameBuffer
+from core.settings import get as get_setting
 
 logger = get_logger()
 
@@ -125,41 +119,49 @@ class MultiModelDetector:
         self.general_url = ROBOFLOW_GENERAL_URL
         self.mobs_url = ROBOFLOW_MOBS_URL
         self.blocks_url = ROBOFLOW_BLOCKS_URL
-        self.confidence_threshold = ROBOFLOW_CONFIDENCE_PERCENT
         
         logger.info(f"✅ [STAGE 1] Multi-Model Roboflow initialized (3 models)")
-        logger.info(f"   General model: {'ENABLED' if USE_GENERAL_MODEL else 'disabled'}")
-        logger.info(f"   Mobs model: {'ENABLED' if USE_MOBS_MODEL else 'disabled'}")
-        logger.info(f"   Blocks model: {'ENABLED' if USE_BLOCKS_MODEL else 'disabled'}")
+        logger.info(f"   General model: {'ENABLED' if get_setting('USE_GENERAL_MODEL') else 'disabled'}")
+        logger.info(f"   Mobs model: {'ENABLED' if get_setting('USE_MOBS_MODEL') else 'disabled'}")
+        logger.info(f"   Blocks model: {'ENABLED' if get_setting('USE_BLOCKS_MODEL') else 'disabled'}")
     
     def detect(self, image: Image.Image) -> Dict:
         """Run detection on all enabled models and combine results"""
+        # Read the settings fresh on every call so panel changes apply to the next frame
+        use_general = get_setting("USE_GENERAL_MODEL")
+        use_mobs = get_setting("USE_MOBS_MODEL")
+        use_blocks = get_setting("USE_BLOCKS_MODEL")
+        general_confidence_percent = get_setting("ROBOFLOW_CONFIDENCE_PERCENT")
+
         all_detections = []
         models_run = []
         
         # MODEL 1: General Detection
-        if USE_GENERAL_MODEL:
+        if use_general:
             logger.info("   🔍 Running General Model...")
-            general_dets = self._run_single_model(self.general_url, image, "general")
+            general_dets = self._run_single_model(
+                self.general_url, image, "general", general_confidence_percent / 100
+            )
             all_detections.extend(general_dets)
             models_run.append("general")
         
         # MODEL 2: Mobs Detection
-        if USE_MOBS_MODEL:
+        if use_mobs:
             logger.info("   🔍 Running Mobs Model...")
-            mobs_dets = self._run_single_model(self.mobs_url, image, "mobs")
-            for det in mobs_dets:
-                if det['confidence'] >= MOB_CONFIDENCE_THRESHOLD:
-                    all_detections.append(det)
+            # Each model is filtered by its OWN threshold (inside _run_single_model)
+            mobs_dets = self._run_single_model(
+                self.mobs_url, image, "mobs", get_setting("MOB_CONFIDENCE_THRESHOLD")
+            )
+            all_detections.extend(mobs_dets)
             models_run.append("mobs")
         
         # MODEL 3: Blocks Detection
-        if USE_BLOCKS_MODEL:
+        if use_blocks:
             logger.info("   🔍 Running Blocks Model...")
-            blocks_dets = self._run_single_model(self.blocks_url, image, "blocks")
-            for det in blocks_dets:
-                if det['confidence'] >= BLOCK_CONFIDENCE_THRESHOLD:
-                    all_detections.append(det)
+            blocks_dets = self._run_single_model(
+                self.blocks_url, image, "blocks", get_setting("BLOCK_CONFIDENCE_THRESHOLD")
+            )
+            all_detections.extend(blocks_dets)
             models_run.append("blocks")
         
         # Remove duplicates
@@ -174,11 +176,11 @@ class MultiModelDetector:
                 "num_detections": len(all_detections),
                 "models_used": models_run,
                 "models_config": {
-                    "general": USE_GENERAL_MODEL,
-                    "mobs": USE_MOBS_MODEL,
-                    "blocks": USE_BLOCKS_MODEL
+                    "general": use_general,
+                    "mobs": use_mobs,
+                    "blocks": use_blocks
                 },
-                "confidence_threshold": self.confidence_threshold
+                "confidence_threshold": general_confidence_percent
             }
         }
         
@@ -188,8 +190,11 @@ class MultiModelDetector:
         logger.debug(f"   [STAGE 1] Found {len(all_detections)} unique objects")
         return detections
     
-    def _run_single_model(self, api_url: str, image: Image.Image, model_name: str) -> List[Dict]:
-        """Run a single Roboflow model"""
+    def _run_single_model(self, api_url: str, image: Image.Image, model_name: str,
+                          min_confidence: float) -> List[Dict]:
+        """Run a single Roboflow model and keep detections at or above
+        min_confidence (0-1). The threshold is also sent to Roboflow, whose own
+        default cut-off would otherwise hide anything below about 0.4."""
         try:
             img_byte_arr = BytesIO()
             image.save(img_byte_arr, format='JPEG', quality=80)
@@ -197,7 +202,10 @@ class MultiModelDetector:
             
             response = requests.post(
                 api_url,
-                params={"api_key": self.api_key},
+                params={
+                    "api_key": self.api_key,
+                    "confidence": max(1, int(round(min_confidence * 100))),
+                },
                 files={"file": ("screenshot.jpg", img_byte_arr, "image/jpeg")},
                 timeout=15
             )
@@ -209,7 +217,7 @@ class MultiModelDetector:
             for pred in result.get("predictions", []):
                 confidence = pred.get("confidence", 0)
                 
-                if confidence < (self.confidence_threshold / 100):
+                if confidence < min_confidence:
                     continue
                 
                 x = pred.get("x", 0)
@@ -332,8 +340,9 @@ class JimmyParser:
             confidence = detection["confidence"]
             bbox = detection["bbox"]
             
-            if confidence < ROBOFLOW_CONFIDENCE_THRESHOLD:
-                continue
+            # No extra confidence filter here: MultiModelDetector already applied
+            # each model's own threshold, and a second global cut-off would hide
+            # low-confidence block detections again.
             
             if class_name in self.THREAT_CLASSES:
                 threats.append((class_name, confidence, bbox))
