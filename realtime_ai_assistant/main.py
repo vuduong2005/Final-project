@@ -18,6 +18,7 @@ from config import (
     STARTUP_DELAY,
     SCREENSHOT_SEQUENCE_LENGTH,
     DEBUG_SCREENSHOT_DIR,
+    DEBUG_SCREENSHOT_MAX_FILES,
     MIN_ANALYSIS_INTERVAL
 )
 from utils.logger import get_logger
@@ -103,6 +104,26 @@ def chat_processor_thread(input_queue: queue.Queue, msg_queue: queue.Queue, cont
     logger.info("💬 Chat processor thread stopped")
 
 
+def _prune_debug_captures(max_files: int = DEBUG_SCREENSHOT_MAX_FILES):
+    """Delete the oldest debug screenshots so the folder never grows past max_files."""
+    try:
+        files = [
+            os.path.join(DEBUG_SCREENSHOT_DIR, name)
+            for name in os.listdir(DEBUG_SCREENSHOT_DIR)
+            if name.startswith("img_") and name.endswith(".png")
+        ]
+        if len(files) <= max_files:
+            return
+        files.sort(key=os.path.getmtime)
+        for old_file in files[:len(files) - max_files]:
+            try:
+                os.remove(old_file)
+            except OSError as e:
+                logger.warning(f"Could not remove old debug screenshot {old_file}: {e}")
+    except Exception as e:
+        logger.error(f"Failed to prune debug screenshots: {e}")
+
+
 # ============================================================================
 # MAIN VISION LOOP
 # ============================================================================
@@ -152,11 +173,14 @@ def vision_loop(msg_queue: queue.Queue, context: dict, status_window: StatusWind
             
             # Analyze immediately (FrameBuffer will internally buffer 3 frames)
             timestamp_str = datetime.datetime.now().strftime("%H-%M-%S")
-            debug_filename = f"{DEBUG_SCREENSHOT_DIR}/img_{timestamp_str}.png"
-            
+            # Include the date so captures from different days never overwrite each other
+            date_str = datetime.datetime.now().strftime("%Y-%m-%d")
+            debug_filename = f"{DEBUG_SCREENSHOT_DIR}/img_{date_str}_{timestamp_str}.png"
+
             try:
                 screenshot.save(debug_filename)
                 logger.debug(f"💾 Debug screenshot saved: {debug_filename}")
+                _prune_debug_captures()
             except Exception as e:
                 logger.error(f"Failed to save debug image: {e}")
             

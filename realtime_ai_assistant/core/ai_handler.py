@@ -688,8 +688,8 @@ Keep it SHORT (1 sentence, maybe 2) and casual.
                     "model": self.model_name,
                     "prompt": prompt,
                     "stream": False,
-                    "temperature": 0.8,
-                    "top_p": 0.95,
+                    # Ollama only reads sampling params from "options"
+                    "options": {"temperature": 0.8, "top_p": 0.95},
                 },
                 timeout=30
             )
@@ -699,8 +699,9 @@ Keep it SHORT (1 sentence, maybe 2) and casual.
             text = result.get("response", "").strip()
             
             logger.debug(f"[STAGE 3] [{mode}] Raw response: '{text}'")
-            
-            if not text or "error" in text.lower():
+
+            # Check Ollama's own "error" field, not the reply text ("terror" is fine)
+            if not text or result.get("error"):
                 logger.warning(f"[STAGE 3] [{mode}] Invalid response")
                 return None
             
@@ -739,8 +740,8 @@ Keep it SHORT (1 sentence, maybe 2) and casual.
                     "prompt": prompt,
                     "images": [encoded_image],
                     "stream": False,
-                    "temperature": 0.8,
-                    "top_p": 0.95,
+                    # Ollama only reads sampling params from "options"
+                    "options": {"temperature": 0.8, "top_p": 0.95},
                 },
                 timeout=45  # vision calls run slower than text-only
             )
@@ -751,7 +752,8 @@ Keep it SHORT (1 sentence, maybe 2) and casual.
 
             logger.debug(f"[STAGE 3] [{mode}-VISION] Raw response: '{text}'")
 
-            if not text or "error" in text.lower():
+            # Check Ollama's own "error" field, not the reply text ("terror" is fine)
+            if not text or result.get("error"):
                 logger.warning(f"[STAGE 3] [{mode}-VISION] Invalid response")
                 return None
 

@@ -1,4 +1,5 @@
 import os
+import json
 from dotenv import load_dotenv
 
 # Load variables from a local .env file (if present). This file is
@@ -149,6 +150,9 @@ CHAT_WINDOW_HEIGHT = 400
 # Directory for debug screenshots
 DEBUG_SCREENSHOT_DIR = "debug_captures"
 
+# Keep only the newest N debug screenshots; older ones are deleted automatically
+DEBUG_SCREENSHOT_MAX_FILES = 50
+
 # CSV report file
 REPORT_CSV = "test_report.csv"
 
@@ -267,6 +271,62 @@ SAVE_ALL_SCREENSHOTS = False
 
 # Print timing information for each stage
 PRINT_TIMING = True
+
+# ============================================================================
+# ADMIN OVERRIDES (config_overrides.json)
+# ============================================================================
+
+# Keys the admin panel (ui/status_window.py) may override, with their type.
+# Must match ADMIN_CONFIG_FIELDS in ui/status_window.py.
+_ADMIN_OVERRIDABLE_KEYS = {
+    "ROBOFLOW_CONFIDENCE_PERCENT": int,
+    "MOB_CONFIDENCE_THRESHOLD": float,
+    "BLOCK_CONFIDENCE_THRESHOLD": float,
+    "SCREENSHOT_INTERVAL": float,
+    "MIN_ANALYSIS_INTERVAL": float,
+    "STARTUP_DELAY": float,
+    "TTS_SPEED": float,
+    "FRAME_BUFFER_MOVEMENT_THRESHOLD": int,
+    "FRAME_BUFFER_CONFIDENCE_THRESHOLD": float,
+}
+
+CONFIG_OVERRIDES_PATH = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "config_overrides.json"
+)
+
+
+def _apply_admin_overrides():
+    """Read config_overrides.json and overwrite the matching module globals.
+    Runs once on import, so every `from config import X` sees the final value.
+    A missing or broken file / bad value is skipped and the default stays."""
+    if not os.path.isfile(CONFIG_OVERRIDES_PATH):
+        return
+
+    try:
+        with open(CONFIG_OVERRIDES_PATH, "r", encoding="utf-8") as f:
+            saved = json.load(f)
+    except Exception as e:
+        print(f"[config] Could not read config_overrides.json, using defaults: {e}")
+        return
+
+    if not isinstance(saved, dict):
+        print("[config] config_overrides.json is not a JSON object, using defaults")
+        return
+
+    for key, caster in _ADMIN_OVERRIDABLE_KEYS.items():
+        if key not in saved:
+            continue
+        try:
+            globals()[key] = caster(saved[key])
+        except (ValueError, TypeError):
+            print(f"[config] Ignoring invalid override for {key}: {saved[key]!r}")
+
+
+_apply_admin_overrides()
+
+# Keep the 0-1 threshold used by the Stage 2 parser in sync with the percent
+# value, in case the percent was overridden above.
+ROBOFLOW_CONFIDENCE_THRESHOLD = ROBOFLOW_CONFIDENCE_PERCENT / 100
 
 # ============================================================================
 # UTILITY FUNCTIONS

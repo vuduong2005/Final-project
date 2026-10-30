@@ -11,7 +11,7 @@ import requests
 
 from piper import PiperVoice
 from piper.config import SynthesisConfig
-from config import TTS_VOLUME
+from config import TTS_VOLUME, TTS_SPEED
 
 logger = get_logger()
 
@@ -23,7 +23,9 @@ _tts_engine_ready = True
 # --- Piper (base TTS) config ---
 PIPER_MODEL_PATH = "en_US-amy-medium.onnx"
 
-LENGTH_SCALE = 1.0
+# Piper's length_scale is the inverse of speed: smaller = faster speech.
+# TTS_SPEED 1.0 = normal, 1.5 = 50% faster. Guard against 0 / negative values.
+LENGTH_SCALE = 1.0 / TTS_SPEED if TTS_SPEED > 0 else 1.0
 NOISE_SCALE = 1.0
 NOISE_W = 1.5
 SENTENCE_SILENCE = 0.2
