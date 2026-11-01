@@ -88,6 +88,19 @@
   .button:hover { filter: brightness(1.08); }
   .button:focus-visible, a:focus-visible { outline: 3px solid var(--text); outline-offset: 3px; }
   .download small { display: block; margin-top: 0.7rem; color: var(--muted); }
+  .download p { margin-bottom: 1rem; }
+  button.copy {
+    font: inherit;
+    font-size: 0.85rem;
+    padding: 0.1rem 0.55rem;
+    margin-left: 0.3rem;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: var(--surface);
+    color: var(--text);
+    cursor: pointer;
+  }
+  button.copy:focus-visible { outline: 3px solid var(--text); outline-offset: 2px; }
 
   ul, ol { padding-left: 1.3rem; margin: 0 0 1rem; }
   li { margin-bottom: 0.4rem; }
@@ -124,9 +137,10 @@
   <p class="lead">A desktop AI companion that watches your Minecraft game, spots mobs, ores and hazards, and talks to you by voice and chat.</p>
 
   <section class="download" aria-labelledby="dl">
-    <h2 id="dl" style="margin-top:0">Download</h2>
-    <a class="button" href="https://github.com/vuduong2005/Final-project/releases/latest">Download the tester build</a>
-    <small>Windows only. About 56 MB. On the release page, pick the file named <code>maria-tester-…zip</code>.</small>
+    <h2 id="dl" style="margin-top:0">Request access</h2>
+    <p>The tester build is not public. Send me a request and I will reply with a download link and your Roboflow key.</p>
+    <a class="button" id="request" href="#request-help">Request access by email</a>
+    <small id="request-help">Windows only, about 56 MB. Your mail app opens with the message filled in. If it does not, write to <span id="address">(turn on JavaScript to see the address)</span> <button type="button" class="copy" id="copy" hidden>Copy address</button></small>
   </section>
 
   <h2>What you need</h2>
@@ -137,8 +151,9 @@
     <li>A Roboflow API key. I will send it to you privately, so please don’t share it.</li>
   </ul>
 
-  <h2>Set up in 4 steps</h2>
+  <h2>Set up in 5 steps</h2>
   <ol>
+    <li>Request access above and wait for my reply with the download link and your key.</li>
     <li>Unzip the download anywhere.</li>
     <li>Double-click <code>setup.bat</code> and follow the prompts. It installs everything and asks for your key.</li>
     <li>Make sure Ollama is running (look for its icon in the system tray).</li>
@@ -174,5 +189,32 @@
     <a href="https://github.com/vuduong2005/Final-project">Project on GitHub</a>
   </footer>
 </main>
+<script>
+  // The address is put together here instead of being written in the HTML, so
+  // simple scrapers that only read the page source do not collect it.
+  (function () {
+    var address = "duongtrieuvu19082005" + "@" + "gmail.com";
+    var subject = "Maria tester access request";
+    var body = "Hi, I would like to test Maria.\n\n" +
+               "Name:\n" +
+               "Who you are (for example recruiter, friend, developer):\n" +
+               "PC (CPU, GPU, RAM):\n";
+
+    document.getElementById("request").href =
+      "mailto:" + address + "?subject=" + encodeURIComponent(subject) +
+      "&body=" + encodeURIComponent(body);
+    document.getElementById("address").textContent = address;
+
+    var copy = document.getElementById("copy");
+    if (navigator.clipboard) {
+      copy.hidden = false;
+      copy.addEventListener("click", function () {
+        navigator.clipboard.writeText(address).then(function () {
+          copy.textContent = "Copied";
+        }, function () {});
+      });
+    }
+  })();
+</script>
 </body>
 </html>
