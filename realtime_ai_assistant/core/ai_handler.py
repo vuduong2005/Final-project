@@ -3,6 +3,7 @@ import json
 import time
 import threading
 import base64
+from concurrent.futures import ThreadPoolExecutor
 from typing import Dict, Optional, List, Tuple
 from PIL import Image
 from datetime import datetime
@@ -120,6 +121,8 @@ class MultiModelDetector:
         self.general_url = ROBOFLOW_GENERAL_URL
         self.mobs_url = ROBOFLOW_MOBS_URL
         self.blocks_url = ROBOFLOW_BLOCKS_URL
+        # One worker per model, reused for every frame (no thread creation per frame)
+        self._pool = ThreadPoolExecutor(max_workers=3, thread_name_prefix="roboflow")
         
         logger.info(f"✅ [STAGE 1] Multi-Model Roboflow initialized (3 models)")
         logger.info(f"   General model: {'ENABLED' if get_setting('USE_GENERAL_MODEL') else 'disabled'}")
@@ -134,36 +137,40 @@ class MultiModelDetector:
         use_blocks = get_setting("USE_BLOCKS_MODEL")
         general_confidence_percent = get_setting("ROBOFLOW_CONFIDENCE_PERCENT")
 
+        # The enabled models, in a fixed order so the combined result is always the same.
+        # Each model is filtered by its OWN threshold (inside _run_single_model).
+        jobs = []
+        if use_general:
+            jobs.append(("general", self.general_url, general_confidence_percent / 100))
+        if use_mobs:
+            jobs.append(("mobs", self.mobs_url, get_setting("MOB_CONFIDENCE_THRESHOLD")))
+        if use_blocks:
+            jobs.append(("blocks", self.blocks_url, get_setting("BLOCK_CONFIDENCE_THRESHOLD")))
+        
         all_detections = []
         models_run = []
+        models_failed = []
         
-        # MODEL 1: General Detection
-        if use_general:
-            logger.info("   🔍 Running General Model...")
-            general_dets = self._run_single_model(
-                self.general_url, image, "general", general_confidence_percent / 100
-            )
-            all_detections.extend(general_dets)
-            models_run.append("general")
-        
-        # MODEL 2: Mobs Detection
-        if use_mobs:
-            logger.info("   🔍 Running Mobs Model...")
-            # Each model is filtered by its OWN threshold (inside _run_single_model)
-            mobs_dets = self._run_single_model(
-                self.mobs_url, image, "mobs", get_setting("MOB_CONFIDENCE_THRESHOLD")
-            )
-            all_detections.extend(mobs_dets)
-            models_run.append("mobs")
-        
-        # MODEL 3: Blocks Detection
-        if use_blocks:
-            logger.info("   🔍 Running Blocks Model...")
-            blocks_dets = self._run_single_model(
-                self.blocks_url, image, "blocks", get_setting("BLOCK_CONFIDENCE_THRESHOLD")
-            )
-            all_detections.extend(blocks_dets)
-            models_run.append("blocks")
+        # The models do not depend on each other, so call them at the same time: the wait
+        # becomes the slowest call instead of the sum of all of them.
+        if jobs:
+            logger.info(f"   🔍 Running {', '.join(name for name, _, _ in jobs)} in parallel...")
+            jpeg = self._encode_jpeg(image)   # encode once, share the bytes with every call
+            futures = [
+                self._pool.submit(self._run_single_model, url, jpeg, name, confidence)
+                for name, url, confidence in jobs
+            ]
+            for (name, _, _), future in zip(jobs, futures):
+                try:
+                    all_detections.extend(future.result())
+                except Exception as e:
+                    logger.error(f"      ✗ {name} model failed: {e}")
+                    models_failed.append(name)
+                models_run.append(name)
+            if models_failed:
+                # Missing detections here are NOT an empty scene: say so loudly
+                logger.warning(f"   ⚠️ {len(models_failed)} of {len(jobs)} Roboflow models failed "
+                               f"({', '.join(models_failed)}): this frame may be missing detections")
         
         # Remove duplicates
         all_detections = self._remove_duplicates(all_detections)
@@ -176,6 +183,7 @@ class MultiModelDetector:
                 "image_height": image.height,
                 "num_detections": len(all_detections),
                 "models_used": models_run,
+                "models_failed": models_failed,
                 "models_config": {
                     "general": use_general,
                     "mobs": use_mobs,
@@ -191,70 +199,98 @@ class MultiModelDetector:
         logger.debug(f"   [STAGE 1] Found {len(all_detections)} unique objects")
         return detections
     
-    def _run_single_model(self, api_url: str, image: Image.Image, model_name: str,
-                          min_confidence: float) -> List[Dict]:
-        """Run a single Roboflow model and keep detections at or above
-        min_confidence (0-1). The threshold is also sent to Roboflow, whose own
-        default cut-off would otherwise hide anything below about 0.4."""
+    # Errors worth one more try: Roboflow busy or rate limiting us, or a dropped connection.
+    # A timeout is NOT retried: it already cost 15 s, and a second try would double the wait.
+    RETRY_STATUS = {429, 500, 502, 503, 504}
+    MAX_ATTEMPTS = 2
+    RETRY_DELAY = 0.4        # seconds; a Retry-After header can raise this, up to RETRY_DELAY_MAX
+    RETRY_DELAY_MAX = 2.0
+    
+    @staticmethod
+    def _encode_jpeg(image: Image.Image) -> bytes:
+        """The screenshot as JPEG bytes, shared by all model calls (encoded once per frame)."""
+        buffer = BytesIO()
+        image.save(buffer, format='JPEG', quality=80)
+        return buffer.getvalue()
+    
+    def _retry_delay(self, response) -> float:
+        """Seconds to wait before retrying; honours a numeric Retry-After header (capped)."""
         try:
-            img_byte_arr = BytesIO()
-            image.save(img_byte_arr, format='JPEG', quality=80)
-            img_byte_arr.seek(0)
-            
-            response = requests.post(
-                api_url,
-                params={
-                    "api_key": self.api_key,
-                    "confidence": max(1, int(round(min_confidence * 100))),
-                },
-                files={"file": ("screenshot.jpg", img_byte_arr, "image/jpeg")},
-                timeout=15
-            )
-            
-            response.raise_for_status()
-            result = response.json()
-            
-            detections = []
-            for pred in result.get("predictions", []):
-                confidence = pred.get("confidence", 0)
-                
-                if confidence < min_confidence:
-                    continue
-                
-                x = pred.get("x", 0)
-                y = pred.get("y", 0)
-                width = pred.get("width", 0)
-                height = pred.get("height", 0)
-                
-                x1 = int(x - width / 2)
-                y1 = int(y - height / 2)
-                x2 = int(x + width / 2)
-                y2 = int(y + height / 2)
-                
-                detection = {
-                    "class": pred.get("class", "unknown"),
-                    "confidence": round(confidence, 3),
-                    "class_id": 0,
-                    "model_source": model_name,
-                    "bbox": {
-                        "x1": x1,
-                        "y1": y1,
-                        "x2": x2,
-                        "y2": y2,
-                        "width": int(width),
-                        "height": int(height),
-                        "center_x": int(x),
-                        "center_y": int(y)
-                    }
-                }
-                detections.append(detection)
-            
-            logger.debug(f"      ✓ {model_name}: {len(detections)} objects")
-            return detections
+            return min(float(response.headers.get("Retry-After")), self.RETRY_DELAY_MAX)
+        except (AttributeError, TypeError, ValueError):
+            return self.RETRY_DELAY
+    
+    def _run_single_model(self, api_url: str, jpeg: bytes, model_name: str,
+                          min_confidence: float) -> List[Dict]:
+        """Run a single Roboflow model on JPEG bytes and keep detections at or above
+        min_confidence (0-1). The threshold is also sent to Roboflow, whose own
+        default cut-off would otherwise hide anything below about 0.4.
         
-        except Exception as e:
-            logger.error(f"      ✗ {model_name} model failed: {e}")
-            return []
+        Transient errors (see RETRY_STATUS, dropped connections) are retried once.
+        Any other failure, or a second failure, raises so that detect() can report the
+        model as failed instead of treating the frame as empty."""
+        for attempt in range(1, self.MAX_ATTEMPTS + 1):
+            try:
+                response = requests.post(
+                    api_url,
+                    params={
+                        "api_key": self.api_key,
+                        "confidence": max(1, int(round(min_confidence * 100))),
+                    },
+                    files={"file": ("screenshot.jpg", jpeg, "image/jpeg")},
+                    timeout=15
+                )
+                if response.status_code in self.RETRY_STATUS and attempt < self.MAX_ATTEMPTS:
+                    delay = self._retry_delay(response)
+                    logger.warning(f"      ↻ {model_name}: HTTP {response.status_code}, retrying in {delay:.1f}s")
+                    time.sleep(delay)
+                    continue
+                response.raise_for_status()
+                result = response.json()
+                break
+            except requests.exceptions.ConnectionError as e:
+                if attempt >= self.MAX_ATTEMPTS:
+                    raise
+                logger.warning(f"      ↻ {model_name}: connection error ({e}), retrying in {self.RETRY_DELAY:.1f}s")
+                time.sleep(self.RETRY_DELAY)
+        
+        detections = []
+        for pred in result.get("predictions", []):
+            confidence = pred.get("confidence", 0)
+            
+            if confidence < min_confidence:
+                continue
+            
+            x = pred.get("x", 0)
+            y = pred.get("y", 0)
+            width = pred.get("width", 0)
+            height = pred.get("height", 0)
+            
+            x1 = int(x - width / 2)
+            y1 = int(y - height / 2)
+            x2 = int(x + width / 2)
+            y2 = int(y + height / 2)
+            
+            detection = {
+                "class": pred.get("class", "unknown"),
+                "confidence": round(confidence, 3),
+                "class_id": 0,
+                "model_source": model_name,
+                "bbox": {
+                    "x1": x1,
+                    "y1": y1,
+                    "x2": x2,
+                    "y2": y2,
+                    "width": int(width),
+                    "height": int(height),
+                    "center_x": int(x),
+                    "center_y": int(y)
+                }
+            }
+            detections.append(detection)
+        
+        logger.debug(f"      ✓ {model_name}: {len(detections)} objects")
+        return detections
     
     def _remove_duplicates(self, detections: List[Dict]) -> List[Dict]:
         """Remove duplicate detections from multiple models"""
