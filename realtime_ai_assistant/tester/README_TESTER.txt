@@ -16,7 +16,9 @@ SET UP (once)
 
 RUN
 1. Double-click run.bat.
-2. Switch to Minecraft within 5 seconds.
+2. Switch to Minecraft within 5 seconds. For the best results play fullscreen with
+   the FOV slider set to 100 (Options > Video Settings). Maria uses it to tell whether
+   a mob is walking towards you; other values make that guess a little less accurate.
 3. Ctrl+Alt+G = chat window.   Ctrl+Alt+S = status window with the live settings
    (voice volume and speed, mute, detection thresholds).
 
@@ -39,4 +41,5 @@ SEND ME
   and said, plus any messages you typed to her. Read it first if you want to
   remove something.
 
-TO STOP: close the black window, or press Ctrl+C in it.
+TO STOP: click "Stop Maria" at the bottom of the chat window (click it twice to confirm),
+or close the black window, or press Ctrl+C in it.
