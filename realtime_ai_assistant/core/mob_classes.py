@@ -20,7 +20,7 @@ RESOURCE_CLASSES = {
     "diamond_ore", "gold_ore", "iron_ore", "copper_ore",
     "coal_ore", "lapis_ore", "emerald_ore", "ancient_debris",
     "diamond", "gold", "iron", "copper", "coal", "lapis",
-    "emerald", "netherite"
+    "emerald", "netherite", "redstone", "redstone_ore"
 }
 
 STATUS_CLASSES = {
