@@ -412,8 +412,16 @@ def main():
     def handle_user_input(message: str):
         user_input_queue.put(message)
     
+    def handle_stop():
+        """Stop button in the chat window: leave the main loop; the finally block below
+        then cleans up exactly like Ctrl+C does (flushes settings, finishes the report)."""
+        logger.info("⏹️  Stop requested from the chat window")
+        app_context['running'] = False
+        chat.window.quit()
+    
     # Initialize Chat UI
-    chat = ChatWindow(message_queue, app_context, user_input_callback=handle_user_input)
+    chat = ChatWindow(message_queue, app_context, user_input_callback=handle_user_input,
+                      stop_callback=handle_stop)
     
     # Initialize Status Window UI
     status_window = StatusWindow(app_context)
