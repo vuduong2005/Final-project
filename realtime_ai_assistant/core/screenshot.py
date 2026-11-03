@@ -6,6 +6,16 @@ from utils.logger import get_logger
 logger = get_logger()
 
 
+def resize_to_height(image, height=720):
+    """Scale an image to `height` px tall, keeping its shape.
+
+    Stretching a non-16:9 screen to 1280x720 would distort every box (the trend math
+    assumes an undistorted frame). A 16:9 monitor still gives exactly 1280x720.
+    """
+    width = max(1, round(image.width * height / image.height))
+    return image.resize((width, height))
+
+
 def capture_screenshot(save=False):
     """
     Captures the primary monitor and returns a PIL Image object using mss.
@@ -39,7 +49,7 @@ def capture_screenshot(save=False):
                 "RGB"
             )
             
-            screenshot_pil = screenshot_pil.resize((1280, 720))
+            screenshot_pil = resize_to_height(screenshot_pil)
 
             if save:
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")

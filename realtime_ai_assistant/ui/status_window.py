@@ -28,7 +28,7 @@ ADMIN_CONFIG_GROUP_ORDER = ["Timing"]
 DETECTION_SLIDER_KEYS = (
     "SCREENSHOT_INTERVAL", "MIN_ANALYSIS_INTERVAL",
     "ROBOFLOW_CONFIDENCE_PERCENT", "MOB_CONFIDENCE_THRESHOLD", "BLOCK_CONFIDENCE_THRESHOLD",
-    "FRAME_BUFFER_MOVEMENT_THRESHOLD", "FRAME_BUFFER_CONFIDENCE_THRESHOLD",
+    "FRAME_BUFFER_SIZE_CHANGE_PERCENT", "FRAME_BUFFER_CONFIDENCE_THRESHOLD",
 )
 MODEL_KEYS = ("USE_GENERAL_MODEL", "USE_MOBS_MODEL", "USE_BLOCKS_MODEL")
 
@@ -398,7 +398,7 @@ class StatusWindow:
             frame, text="FRAME BUFFER (ADVANCED)", font=("Consolas", 8, "bold"),
             fg="#888888", bg="#151515"
         ).pack(anchor="w", padx=10, pady=(4, 0))
-        self._add_live_slider(frame, "FRAME_BUFFER_MOVEMENT_THRESHOLD", "Movement", lambda v: f"{int(round(v))}px",
+        self._add_live_slider(frame, "FRAME_BUFFER_SIZE_CHANGE_PERCENT", "Size chg", lambda v: f"{int(round(v))}%",
                               resolution=5, label_width=9)
         self._add_live_slider(frame, "FRAME_BUFFER_CONFIDENCE_THRESHOLD", "Trend", lambda v: f"{v:.2f}",
                               resolution=0.01, label_width=9)

@@ -35,7 +35,7 @@ SPECS = {
     "MOB_CONFIDENCE_THRESHOLD": {"type": float, "min": 0.05, "max": 1.0},
     "BLOCK_CONFIDENCE_THRESHOLD": {"type": float, "min": 0.05, "max": 1.0},
     # Frame buffer (short-term memory trends)
-    "FRAME_BUFFER_MOVEMENT_THRESHOLD": {"type": int, "min": 5, "max": 300},  # pixels
+    "FRAME_BUFFER_SIZE_CHANGE_PERCENT": {"type": int, "min": 5, "max": 100},  # percent
     "FRAME_BUFFER_CONFIDENCE_THRESHOLD": {"type": float, "min": 0.01, "max": 0.5},
 }
 

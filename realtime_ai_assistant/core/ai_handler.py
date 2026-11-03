@@ -20,6 +20,7 @@ from config import (
     PROACTIVE_STREAK_SECONDS,
     PROACTIVE_CHAT_COOLDOWN_SECONDS,
 )
+from core import mob_classes
 from core.frame_buffer import FrameBuffer
 from core.settings import get as get_setting
 
@@ -293,36 +294,21 @@ class MultiModelDetector:
 class JimmyParser:
     """Converts raw Roboflow JSON into readable text (Stage 2 ONLY)"""
     
-    THREAT_CLASSES = {
-        "creeper", "zombie", "skeleton", "enderman", "witch",
-        "spider", "cave_spider", "ghast", "blaze", "wither",
-        "drowned", "husk", "stray"
-    }
+    THREAT_CLASSES = mob_classes.THREAT_CLASSES
+    RESOURCE_CLASSES = mob_classes.RESOURCE_CLASSES
+    STATUS_CLASSES = mob_classes.STATUS_CLASSES
+    HAZARD_CLASSES = mob_classes.HAZARD_CLASSES
+    PASSIVE_CLASSES = mob_classes.PASSIVE_CLASSES
     
-    RESOURCE_CLASSES = {
-        "diamond_ore", "gold_ore", "iron_ore", "copper_ore",
-        "coal_ore", "lapis_ore", "emerald_ore", "ancient_debris",
-        "diamond", "gold", "iron", "copper", "coal", "lapis",
-        "emerald", "netherite"
-    }
-    
-    STATUS_CLASSES = {
-        "health_bar", "hunger_bar", "exp_bar", "armor",
-        "shield", "effect"
-    }
-    
-    HAZARD_CLASSES = {
-        "water", "lava", "fire", "cactus", "void",
-        "suffocation", "damage"
-    }
-
-    PASSIVE_CLASSES = {
-        "cow", "pig", "sheep", "horse", "donkey",
-        "duck", "fish", "chicken", "villager",
-    }
+    # Size of the frame the detections are in. The screenshot is 720 px tall; parse() updates
+    # this from the detector's metadata so "left / center / right" always use the real frame.
+    frame_size = (1280, 720)
     
     def parse(self, raw_json: Dict) -> str:
         """Convert Roboflow JSON to readable text (NO natural language generation here)"""
+        meta = raw_json.get("metadata") or {}
+        if meta.get("image_width") and meta.get("image_height"):
+            self.frame_size = (meta["image_width"], meta["image_height"])
         detections = raw_json.get("detections", [])
         
         if not detections:
@@ -336,7 +322,7 @@ class JimmyParser:
         passive = []
         
         for detection in detections:
-            class_name = detection["class"].lower().strip()
+            class_name = mob_classes.normalize_class(detection["class"])
             confidence = detection["confidence"]
             bbox = detection["bbox"]
             
@@ -424,20 +410,21 @@ class JimmyParser:
         return ", ".join(status_list)
     
     def _get_simple_location(self, bbox: Dict) -> str:
-        """Get simplified location"""
-        center_x = bbox["center_x"]
-        center_y = bbox["center_y"]
+        """Get simplified location: the frame is split into thirds both ways"""
+        width, height = self.frame_size
+        x = bbox["center_x"] / width
+        y = bbox["center_y"] / height
         
-        if center_x < 213:
+        if x < 1 / 3:
             x_pos = "left"
-        elif center_x > 427:
+        elif x > 2 / 3:
             x_pos = "right"
         else:
             x_pos = "center"
         
-        if center_y < 120:
+        if y < 1 / 3:
             y_pos = "top"
-        elif center_y > 240:
+        elif y > 2 / 3:
             y_pos = "bottom"
         else:
             y_pos = "middle"

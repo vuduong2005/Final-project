@@ -114,18 +114,9 @@ PROACTIVE_CHAT_COOLDOWN_SECONDS = 60
 # Maximum frames to keep in buffer (3 = last 3 frames)
 FRAME_BUFFER_MAX_FRAMES = 3
 
-# Resize images to this size before storing (width, height)
-# Smaller = faster, less memory
-# Standard for Roboflow: 640x360
-FRAME_BUFFER_TARGET_SIZE = (640, 360)
-
-# JPEG quality for compression (0-100)
-# 80 = good balance between quality and file size
-FRAME_BUFFER_JPEG_QUALITY = 80
-
-# Movement threshold in pixels (must move this much to be "significant")
-# Used for trend detection: approaching/moving_away
-FRAME_BUFFER_MOVEMENT_THRESHOLD = 50
+# Size change in percent (the detection box must look this much bigger or smaller
+# between the first and last frame to count as "approaching" or "moving away")
+FRAME_BUFFER_SIZE_CHANGE_PERCENT = 15
 
 # Confidence trend threshold
 # If avg confidence changes by more than this, it's "increasing" or "decreasing"
@@ -302,7 +293,7 @@ _ADMIN_OVERRIDABLE_KEYS = {
     "USE_GENERAL_MODEL": _as_bool,
     "USE_MOBS_MODEL": _as_bool,
     "USE_BLOCKS_MODEL": _as_bool,
-    "FRAME_BUFFER_MOVEMENT_THRESHOLD": int,
+    "FRAME_BUFFER_SIZE_CHANGE_PERCENT": int,
     "FRAME_BUFFER_CONFIDENCE_THRESHOLD": float,
 }
 

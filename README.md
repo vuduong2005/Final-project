@@ -105,6 +105,7 @@ The tester page is in `docs/` at the repo root.
 ## Known limitations
 
 - Windows only (uses `winsound`).
+- Works best with Minecraft fullscreen on the primary monitor. The app captures the whole screen and the trend math assumes that picture is the game view with FOV 100. A windowed game or another FOV only makes the turn and tilt correction less accurate.
 - Detection depends on Roboflow's hosted API; replacing it with a custom-trained model is in progress. While it runs, frames of your whole primary screen are sent to that service.
 - A custom voice-conversion step (RVC) was prototyped but disabled, because it competed with Ollama for a 6 GB GPU.
 - Duplicate removal compares class name and center distance, so two real objects of the same type very close together can be merged.
