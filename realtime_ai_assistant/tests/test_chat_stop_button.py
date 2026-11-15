@@ -38,7 +38,7 @@ def test_button_starts_at_rest():
     try:
         assert chat.stop_button.cget("text") == ChatWindow.STOP_TEXT
         assert str(chat.stop_button.cget("state")) == "normal"
-        assert chat.status_label.cget("text").startswith("Type here")    # the old status text is still there
+        assert chat.status_label.cget("text").startswith("Click the box to type")    # the status text is still there
     finally:
         chat.window.destroy()
 

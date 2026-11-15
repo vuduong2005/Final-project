@@ -22,8 +22,9 @@ APP_FILES = [
     ".env.example",
     "en_US-amy-medium.onnx",        # Piper voice (about 63 MB)
     "en_US-amy-medium.onnx.json",
+    "requirements-voice.txt",         # optional libraries for Voice mode (the README tells testers how to install them)
 ]
-APP_FOLDERS = ["core", "ui", "utils"]  # only *.py files are taken from these
+APP_FOLDERS = ["core", "core/_private", "ui", "utils"]  # only *.py files are taken from these
 
 # Files that live in tester/ and go to the zip root. Text files are written
 # with Windows line endings so the .bat files always work.
@@ -36,6 +37,7 @@ requests==2.33.1
 mss==10.2.0
 python-dotenv==1.2.2
 piper-tts==1.4.2
+numpy==2.4.4
 """
 
 

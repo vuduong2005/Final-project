@@ -24,6 +24,15 @@ SPECS = {
     "TTS_VOLUME": {"type": float, "min": 0.0, "max": 2.0},
     "TTS_SPEED": {"type": float, "min": 0.5, "max": 2.0},
     "TTS_MUTED": {"type": bool},
+    "TTS_VOICE": {"type": str, "choices": ("now", "livelier", "bright")},
+    "TTS_MODEL": {"type": str, "choices": ("amy", "maria")},
+    # Talking to Maria
+    "PUSH_TO_TALK": {"type": bool},
+    "PUSH_TO_TALK_KEY": {"type": str, "choices": ("v", "b", "f8", "f9")},
+    "MIC_DEVICE": {"type": str, "choices": None, "max_length": 120},     # "" = the Windows default; else a device name
+    "STT_MODEL": {"type": str, "choices": ("tiny.en", "base.en", "small.en")},
+    "VOICE_SILENCE_SECONDS": {"type": float, "min": 0.5, "max": 3.0},
+    "VOICE_BEEPS": {"type": bool},
     # Timing (seconds)
     "SCREENSHOT_INTERVAL": {"type": float, "min": 0.1, "max": 5.0},
     "MIN_ANALYSIS_INTERVAL": {"type": float, "min": 0.5, "max": 30.0},
@@ -33,6 +42,7 @@ SPECS = {
     "USE_BLOCKS_MODEL": {"type": bool},
     "ROBOFLOW_CONFIDENCE_PERCENT": {"type": int, "min": 5, "max": 100},  # general model, 0-100
     "MOB_CONFIDENCE_THRESHOLD": {"type": float, "min": 0.05, "max": 1.0},
+    "THREAT_INSTANT_CONFIDENCE": {"type": float, "min": 0.5, "max": 1.0},
     "BLOCK_CONFIDENCE_THRESHOLD": {"type": float, "min": 0.05, "max": 1.0},
     # Frame buffer (short-term memory trends)
     "FRAME_BUFFER_SIZE_CHANGE_PERCENT": {"type": int, "min": 5, "max": 100},  # percent
@@ -57,6 +67,15 @@ def _coerce(key: str, value):
     """Convert to the setting's type and clamp numbers into the allowed range.
     Raises ValueError for values that cannot be used at all (e.g. 'abc', NaN)."""
     spec = SPECS[key]
+
+    if spec["type"] is str:
+        if spec["choices"] is None:                       # free text (a device name), not a pick from a short list
+            if not isinstance(value, str):
+                raise ValueError(f"{key} must be text, got {value!r}")
+            return value.strip()[:spec.get("max_length", 200)]
+        if value not in spec["choices"]:
+            raise ValueError(f"{key} must be one of {spec['choices']}, got {value!r}")
+        return value
 
     if spec["type"] is bool:
         if not isinstance(value, bool):

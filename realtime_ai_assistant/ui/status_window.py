@@ -10,7 +10,8 @@ from collections import deque
 
 from utils.logger import get_logger
 import config as config_module
-from core import settings
+from core import settings, voice_input
+from ui import win_focus
 
 logger = get_logger()
 
@@ -27,10 +28,27 @@ ADMIN_CONFIG_GROUP_ORDER = ["Timing"]
 # Live detection settings shown in the DETECTION & TIMING section
 DETECTION_SLIDER_KEYS = (
     "SCREENSHOT_INTERVAL", "MIN_ANALYSIS_INTERVAL",
-    "ROBOFLOW_CONFIDENCE_PERCENT", "MOB_CONFIDENCE_THRESHOLD", "BLOCK_CONFIDENCE_THRESHOLD",
+    "ROBOFLOW_CONFIDENCE_PERCENT", "MOB_CONFIDENCE_THRESHOLD", "THREAT_INSTANT_CONFIDENCE", "BLOCK_CONFIDENCE_THRESHOLD",
     "FRAME_BUFFER_SIZE_CHANGE_PERCENT", "FRAME_BUFFER_CONFIDENCE_THRESHOLD",
 )
 MODEL_KEYS = ("USE_GENERAL_MODEL", "USE_MOBS_MODEL", "USE_BLOCKS_MODEL")
+# Slider knob: one plain green, with no hover colour change, so it stays visible on the dark panel
+SLIDER_KNOB = "#2ECC71"
+# The first entry of the microphone list: whichever microphone Windows has as its default right now
+MIC_DEFAULT_LABEL = "Windows default"
+# Voice styles in the Voice section: (value of TTS_VOICE, label)
+VOICE_CHOICES = (("now", "1 Normal"), ("livelier", "2 Livelier"), ("bright", "3 Bright"))
+# Which voice model: (value of TTS_MODEL, label); shown only when her own voice (maria.onnx) is installed
+MODEL_CHOICES = (("amy", "Amy (standard)"), ("maria", "Maria (her own)"))
+
+
+def _maria_installed() -> bool:
+    try:
+        from core import tts  # imported here so this window can run on its own
+        return tts.maria_available()
+    except Exception:
+        return False
+
 
 CONFIG_OVERRIDES_PATH = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "config_overrides.json"
@@ -97,7 +115,8 @@ class StatusWindow:
         self._fit_height()
 
         self.window.protocol("WM_DELETE_WINDOW", self.toggle)
-        self.window.withdraw()  # start hidden
+        # Start hidden, and never take keyboard focus away from the game when clicked or shown
+        win_focus.start_hidden(self.window)
 
         self.polling_thread = threading.Thread(
             target=self._poll_status,
@@ -233,6 +252,32 @@ class StatusWindow:
         self._add_live_slider(frame, "TTS_VOLUME", "Volume", lambda v: f"{int(round(v * 100))}%")
         self._add_live_slider(frame, "TTS_SPEED", "Speed", lambda v: f"{v:.2f}x")
 
+        # Which voice she uses (applies to the very next line)
+        self.model_var = tk.StringVar(value=settings.get("TTS_MODEL"))
+        if _maria_installed():
+            tk.Label(frame, text="VOICE", font=("Consolas", 8, "bold"), fg="#888888",
+                     bg="#151515").pack(anchor="w", padx=10, pady=(6, 0))
+            model_row = tk.Frame(frame, bg="#151515")
+            model_row.pack(fill=tk.X, padx=10, pady=(2, 0))
+            for value, text in MODEL_CHOICES:
+                tk.Radiobutton(
+                    model_row, text=text, value=value, variable=self.model_var, command=self._on_model_change,
+                    font=("Consolas", 9), fg="#CCCCCC", bg="#151515", activebackground="#151515",
+                    activeforeground="#CCCCCC", selectcolor="#0f0f0f", highlightthickness=0, bd=0
+                ).pack(side=tk.LEFT, padx=(0, 10))
+
+        tk.Label(frame, text="VOICE STYLE", font=("Consolas", 8, "bold"), fg="#888888",
+                 bg="#151515").pack(anchor="w", padx=10, pady=(6, 0))
+        voice_row = tk.Frame(frame, bg="#151515")
+        voice_row.pack(fill=tk.X, padx=10, pady=(2, 0))
+        self.voice_var = tk.StringVar(value=settings.get("TTS_VOICE"))
+        for value, text in VOICE_CHOICES:
+            tk.Radiobutton(
+                voice_row, text=text, value=value, variable=self.voice_var, command=self._on_voice_change,
+                font=("Consolas", 9), fg="#CCCCCC", bg="#151515", activebackground="#151515",
+                activeforeground="#CCCCCC", selectcolor="#0f0f0f", highlightthickness=0, bd=0
+            ).pack(side=tk.LEFT, padx=(0, 10))
+
         self.mute_var = tk.BooleanVar(value=settings.get("TTS_MUTED"))
         tk.Checkbutton(
             frame, text="Mute Maria's voice", variable=self.mute_var,
@@ -258,6 +303,49 @@ class StatusWindow:
         )
         self.live_status.pack(side=tk.LEFT, padx=6)
 
+        # How the player talks to her
+        tk.Label(
+            self.window, text="TALK TO MARIA", font=("Consolas", 9, "bold"), fg="#00FFAA", bg="#0a0a0a"
+        ).pack(anchor="w", padx=10, pady=(4, 0))
+        talk_frame = tk.Frame(self.window, bg="#151515", bd=1, relief=tk.FLAT)
+        talk_frame.pack(fill=tk.X, padx=10, pady=(4, 8))
+        mic_row = tk.Frame(talk_frame, bg="#151515")
+        mic_row.pack(fill=tk.X, padx=10, pady=(6, 0))
+        tk.Label(mic_row, text="Microphone", font=("Consolas", 9), fg="#CCCCCC", bg="#151515",
+                 width=11, anchor="w").pack(side=tk.LEFT)
+        self.mic_var = tk.StringVar()
+        self._mic_options = {}                                   # what the list shows -> the setting value
+        self.mic_menu = tk.OptionMenu(mic_row, self.mic_var, "")
+        self.mic_menu.config(font=("Consolas", 9), fg="#00FF00", bg="#0f0f0f", activebackground="#1a1a1a",
+                             activeforeground="#00FF00", highlightthickness=0, bd=0, width=30, anchor="w")
+        self.mic_menu.pack(side=tk.LEFT, padx=(0, 6))
+        tk.Button(mic_row, text="Refresh", command=self._refresh_mics, font=("Consolas", 8), fg="#CCCCCC",
+                  bg="#222222", activebackground="#333333", activeforeground="#FFFFFF", bd=0,
+                  highlightthickness=0, padx=6).pack(side=tk.LEFT)
+        self._refresh_mics()
+        ptt_row = tk.Frame(talk_frame, bg="#151515")
+        ptt_row.pack(fill=tk.X, padx=10, pady=(6, 0))
+        self.ptt_var = tk.BooleanVar(value=settings.get("PUSH_TO_TALK"))
+        tk.Checkbutton(
+            ptt_row, text="Push to talk (hold the key to record)", variable=self.ptt_var, command=self._on_ptt_change,
+            font=("Consolas", 9), fg="#CCCCCC", bg="#151515", activebackground="#151515",
+            activeforeground="#CCCCCC", selectcolor="#0f0f0f", highlightthickness=0, bd=0
+        ).pack(side=tk.LEFT)
+        self.ptt_key_var = tk.StringVar(value=str(settings.get("PUSH_TO_TALK_KEY")).upper())
+        keys = tuple(k.upper() for k in settings.SPECS["PUSH_TO_TALK_KEY"]["choices"])
+        key_menu = tk.OptionMenu(ptt_row, self.ptt_key_var, *keys, command=lambda value: self._on_ptt_key_change())
+        key_menu.config(font=("Consolas", 9), fg="#00FF00", bg="#0f0f0f", activebackground="#1a1a1a",
+                        activeforeground="#00FF00", highlightthickness=0, bd=0)
+        key_menu.pack(side=tk.LEFT, padx=6)
+        self._add_live_slider(talk_frame, "VOICE_SILENCE_SECONDS", "Pause ends", lambda v: f"{v:.1f}s",
+                              resolution=0.1, label_width=11)
+        tk.Label(
+            talk_frame, text="Pick the microphone you talk into (press Refresh after plugging earphones in). Turn voice on with the Voice button in the chat window (or Ctrl+Alt+V). Talk over her "
+                             "to stop her. Push to talk works while Minecraft is in front (typing the key in Minecraft's own "
+                             "chat records too: pick F8 then). Sound stays on this PC (first use downloads a ~150 MB model once).",
+            font=("Consolas", 8), fg="#888888", bg="#151515", anchor="w", justify=tk.LEFT, wraplength=420
+        ).pack(fill=tk.X, padx=10, pady=(0, 6))
+
     def _add_live_slider(self, parent, key: str, label: str, fmt,
                          resolution: float = 0.05, label_width: int = 7):
         """One labelled slider bound to a setting. Limits come from settings.SPECS."""
@@ -279,9 +367,10 @@ class StatusWindow:
 
         scale = tk.Scale(
             row, variable=var, from_=spec["min"], to=spec["max"], resolution=resolution,
-            orient=tk.HORIZONTAL, showvalue=False, width=10, bg="#151515", fg="#CCCCCC",
-            troughcolor="#0f0f0f", highlightthickness=0, bd=0,
-            activebackground="#00FFAA", sliderrelief=tk.FLAT
+            orient=tk.HORIZONTAL, showvalue=False, width=10, fg="#CCCCCC",
+            # The knob is drawn in bg; activebackground (hover and drag) is the same, so it never changes
+            bg=SLIDER_KNOB, activebackground=SLIDER_KNOB,
+            troughcolor="#0f0f0f", highlightthickness=0, bd=0, sliderrelief=tk.FLAT
         )
         scale.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=6)
         value_label.pack(side=tk.LEFT)
@@ -299,6 +388,61 @@ class StatusWindow:
             return
         _, fmt, value_label = self.live_sliders[key]
         value_label.config(text=fmt(applied))
+
+    def _refresh_mics(self):
+        """Fill the microphone list with what is plugged in now (also after plugging in earphones: press Refresh).
+        A saved microphone that is not connected stays in the list, marked, and Maria uses the default one meanwhile."""
+        names = voice_input.input_device_names()
+        saved = settings.get("MIC_DEVICE")
+        options = {MIC_DEFAULT_LABEL: ""}
+        options.update({name: name for name in names})
+        if saved and saved not in names:
+            options[f"{saved} (not connected)"] = saved
+        self._mic_options = options
+        menu = self.mic_menu["menu"]
+        menu.delete(0, "end")
+        for label in options:
+            menu.add_command(label=label, command=lambda chosen=label: self._on_mic_pick(chosen))
+        self.mic_var.set(next(label for label, value in options.items() if value == saved))
+
+    def _on_mic_pick(self, label: str):
+        """A microphone was picked: applies at once (an open microphone is reopened on the new one)."""
+        self.mic_var.set(label)
+        try:
+            settings.update("MIC_DEVICE", self._mic_options.get(label, ""))
+        except ValueError as e:
+            logger.error(f"Invalid microphone: {e}")
+
+    def _on_ptt_change(self):
+        """Push to talk was ticked or unticked: applies at once."""
+        try:
+            settings.update("PUSH_TO_TALK", bool(self.ptt_var.get()))
+        except ValueError as e:
+            logger.error(f"Invalid push-to-talk setting: {e}")
+
+    def _on_ptt_key_change(self):
+        try:
+            settings.update("PUSH_TO_TALK_KEY", self.ptt_key_var.get().lower())
+        except ValueError as e:
+            logger.error(f"Invalid push-to-talk key: {e}")
+
+    def _on_model_change(self):
+        """Amy or Maria's own voice was picked: apply it straight away and let her say a sample."""
+        try:
+            settings.update("TTS_MODEL", self.model_var.get())
+        except ValueError as e:
+            logger.error(f"Invalid voice model: {e}")
+            return
+        self._on_test_voice()
+
+    def _on_voice_change(self):
+        """A voice style was picked: apply it straight away and let her say a sample."""
+        try:
+            settings.update("TTS_VOICE", self.voice_var.get())
+        except ValueError as e:
+            logger.error(f"Invalid voice style: {e}")
+            return
+        self._on_test_voice()
 
     def _on_mute_toggle(self):
         settings.update("TTS_MUTED", bool(self.mute_var.get()))
@@ -327,6 +471,8 @@ class StatusWindow:
             var.set(value)
             value_label.config(text=fmt(value))
         self.mute_var.set(settings.reset("TTS_MUTED"))
+        self.voice_var.set(settings.reset("TTS_VOICE"))
+        self.model_var.set(settings.reset("TTS_MODEL"))
         self._set_live_status("Voice settings reset")
 
     # ------------------------------------------------------------------
@@ -390,6 +536,8 @@ class StatusWindow:
                               resolution=1, label_width=9)
         self._add_live_slider(frame, "MOB_CONFIDENCE_THRESHOLD", "Mobs", lambda v: f"{v:.2f}",
                               resolution=0.05, label_width=9)
+        self._add_live_slider(frame, "THREAT_INSTANT_CONFIDENCE", "Danger now", lambda v: f"{v:.2f}",
+                              resolution=0.05, label_width=11)
         self._add_live_slider(frame, "BLOCK_CONFIDENCE_THRESHOLD", "Blocks", lambda v: f"{v:.2f}",
                               resolution=0.05, label_width=9)
 
@@ -510,13 +658,15 @@ class StatusWindow:
                 value = current_values.get(key)
 
                 var = tk.StringVar(value=str(value))
-                tk.Entry(
+                entry = tk.Entry(
                     row, textvariable=var, font=("Consolas", 9),
                     bg="#0f0f0f", fg="#00FF00", insertbackground="#00FF00",
                     relief=tk.FLAT, bd=0, highlightthickness=1,
                     highlightbackground="#333333", highlightcolor="#00FFAA",
                     width=12
-                ).pack(side=tk.LEFT, ipady=2)
+                )
+                entry.pack(side=tk.LEFT, ipady=2)
+                win_focus.typing_field(entry)   # typing needs focus: a click takes it, Enter / Escape returns it
 
                 self.config_vars[key] = var
 
@@ -637,13 +787,10 @@ class StatusWindow:
 
     def toggle(self):
         """Show/hide the status panel (bind to its own hotkey)."""
-        if self.window.state() == "normal":
-            self.window.withdraw()
-            logger.info("📊 Status window hidden")
-        else:
-            self.window.deiconify()
-            self.window.lift()
+        if win_focus.toggle(self.window):
             logger.info("📊 Status window shown")
+        else:
+            logger.info("📊 Status window hidden")
 
     # ------------------------------------------------------------------
     # Internal: polling + rendering
@@ -704,7 +851,7 @@ if __name__ == "__main__":
 
     ctx = {}
     win = StatusWindow(ctx)
-    win.window.deiconify()
+    win_focus.show(win.window)
 
     def simulate():
         activities = ["mining", "combat", "exploring", "animal nearby"]

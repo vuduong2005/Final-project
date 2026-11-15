@@ -1,0 +1,6 @@
+# Optional: talking to Maria with your voice. Not needed for typing.
+# Install with:  venv\Scripts\python.exe -m pip install -r requirements-voice.txt
+# The first time voice is switched on it downloads a speech model once (about 150 MB for base.en).
+# Speech is turned into text on this PC; the sound is never saved or sent anywhere.
+sounddevice>=0.4
+faster-whisper>=1.0

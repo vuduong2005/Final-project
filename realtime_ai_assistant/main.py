@@ -7,14 +7,18 @@ import os
 import datetime
 from pynput.keyboard import GlobalHotKeys
 
-from core.screenshot import capture_screenshot
+from core.screenshot import capture_screenshot, game_is_in_front
 from core.ai_handler import AIHandler
 from core.tts import speak_in_thread
 import core.tts
+from core import voice_input
 from core import settings
 from ui.chat_window import ChatWindow
-from ui.status_window import StatusWindow  
+from ui.status_window import StatusWindow
+from ui.speaking_overlay import SpeakingOverlay
 from config import (
+    ALERT_ANALYSIS_INTERVAL,
+    ALERT_SECONDS,
     STARTUP_DELAY,
     SCREENSHOT_SEQUENCE_LENGTH,
     DEBUG_SCREENSHOT_DIR,
@@ -146,6 +150,8 @@ def vision_loop(msg_queue: queue.Queue, context: dict, status_window: StatusWind
         time.sleep(0.2)
 
     last_analysis_time = 0
+    # Load the voice now, in the background, so the very first warning does not wait for it
+    threading.Thread(target=core.tts.warm_up, daemon=True, name="VoiceWarmUp").start()
     # Both values are re-read at the top of every cycle (live settings)
     min_interval_between_analyses = settings.get("MIN_ANALYSIS_INTERVAL")
     capture_interval = settings.get("SCREENSHOT_INTERVAL")
@@ -168,15 +174,21 @@ def vision_loop(msg_queue: queue.Queue, context: dict, status_window: StatusWind
             # Capture screenshot
             screenshot = capture_screenshot()
             if not screenshot:
-                logger.warning("⚠️  Failed to capture screenshot")
-                time.sleep(capture_interval)
+                # Normal while Minecraft is closed or minimised: nothing is captured then (privacy).
+                # capture_screenshot() logs the reason once; no warning every cycle.
+                logger.debug("No screenshot this cycle (Minecraft closed or minimised, or capture failed)")
+                time.sleep(max(capture_interval, 1.0))
                 continue
             
+            captured_at = time.time()
             context['latest_screenshot'] = screenshot
             logger.debug(f"📸 Captured screenshot")
             
             # Check if enough time has passed since last analysis
             current_time = time.time()
+            # While a danger was seen a moment ago, look more often: the warning must come before the mob does
+            if current_time - ai_handler.last_threat_seen_at < ALERT_SECONDS:
+                min_interval_between_analyses = min(min_interval_between_analyses, ALERT_ANALYSIS_INTERVAL)
             time_since_last = current_time - last_analysis_time
             
             if time_since_last < min_interval_between_analyses:
@@ -203,7 +215,7 @@ def vision_loop(msg_queue: queue.Queue, context: dict, status_window: StatusWind
             analysis_start = time.time()
             
             try:
-                result = ai_handler.analyze_screenshot(screenshot)
+                result = ai_handler.analyze_screenshot(screenshot, captured_at=captured_at)
                 
                 analysis_time = time.time() - analysis_start
 
@@ -244,7 +256,10 @@ def vision_loop(msg_queue: queue.Queue, context: dict, status_window: StatusWind
                     
                     context['recent_game_state'] = result.get("game_state", "")
                     
-                    speak_in_thread(response)
+                    # A danger warning gets the alarmed face on screen, everything else the happy one
+                    danger = result.get("kind") == "threat"
+                    speak_in_thread(response, mood="alarm" if danger else "talk",
+                                    urgent=danger, captured_at=result.get("captured_at"))
                     msg_queue.put(("AI", response))
                     
                     _log_analysis_to_report(
@@ -257,7 +272,10 @@ def vision_loop(msg_queue: queue.Queue, context: dict, status_window: StatusWind
                     )
                     
                     last_analysis_time = time.time()
-                    time.sleep(min_interval_between_analyses)
+                    pause = min_interval_between_analyses
+                    if danger or time.time() - ai_handler.last_threat_seen_at < ALERT_SECONDS:
+                        pause = min(pause, ALERT_ANALYSIS_INTERVAL)          # a danger is around: look again soon
+                    time.sleep(pause)
                 else:
                     logger.debug("💤 No urgent game state")
                     if result:
@@ -354,17 +372,28 @@ def _finalize_report():
 # HOTKEY MANAGEMENT
 # ============================================================================
 
-def start_hotkey_listener(chat_toggle_func, status_toggle_func):
+def push_to_talk_blocked(chat, voice) -> bool:
+    """Should the push-to-talk key be ignored right now? Yes unless voice is on in push-to-talk mode, the player is
+    not typing in Maria's chat box, and Minecraft is the window in front (so the letter V in a browser or another
+    app never records anything)."""
+    if chat.is_typing() or not voice.is_on() or not settings.get("PUSH_TO_TALK"):
+        return True
+    return not game_is_in_front()
+
+
+def start_hotkey_listener(chat_toggle_func, status_toggle_func, voice_toggle_func=None):
     global hotkey_listener
     hotkey_map = {
         '<ctrl>+<alt>+g': chat_toggle_func,
         '<ctrl>+<alt>+s': status_toggle_func
     }
+    if voice_toggle_func:
+        hotkey_map['<ctrl>+<alt>+v'] = voice_toggle_func        # voice on / off
     
     try:
         hotkey_listener = GlobalHotKeys(hotkey_map)
         hotkey_listener.start()
-        logger.info("👂 Hotkey listener started (Ctrl+Alt+G for Chat, Ctrl+Alt+S for Status)")
+        logger.info("👂 Hotkey listener started (Ctrl+Alt+G for Chat, Ctrl+Alt+S for Status, Ctrl+Alt+V for voice on/off)")
     except Exception as e:
         logger.error(f"❌ Failed to start hotkey listener: {e}")
 
@@ -403,6 +432,8 @@ def main():
     try:
         ai_handler = AIHandler()
         logger.info("✅ AI Handler initialized successfully")
+        # Load the language model into the GPU in the background (20-30 s the first time) so her first reply is fast
+        threading.Thread(target=ai_handler.generator.warm_up, daemon=True, name="ModelWarmUp").start()
     except Exception as e:
         logger.error(f"❌ Failed to initialize AI Handler: {e}")
         sys.exit(1)
@@ -417,15 +448,34 @@ def main():
         then cleans up exactly like Ctrl+C does (flushes settings, finishes the report)."""
         logger.info("⏹️  Stop requested from the chat window")
         app_context['running'] = False
+        voice.cancel()                                  # the microphone closes at once
         chat.window.quit()
     
     # Initialize Chat UI
     chat = ChatWindow(message_queue, app_context, user_input_callback=handle_user_input,
-                      stop_callback=handle_stop)
+                      stop_callback=handle_stop, interrupt_callback=core.tts.stop_speaking)
     
     # Initialize Status Window UI
     status_window = StatusWindow(app_context)
-    
+
+    # Maria's face in the corner of the screen; its mouth moves while she speaks
+    SpeakingOverlay(chat.window)
+
+    # Talking to her out loud: one on/off button in the chat window (it always starts off). Speech becomes text
+    # on this PC and goes through the same path as a typed message; the player's voice cuts her off.
+    voice = voice_input.VoiceInput(
+        on_text=chat.submit_voice_text, on_state=chat.on_voice_state, on_message=chat.on_voice_message,
+        stop_speaking=core.tts.stop_speaking, beep=voice_input.beep, warned_since=core.tts.warning_played_since,
+        maria_speaking=core.tts.is_speaking, is_echo=core.tts.sounds_like_her_own_voice)
+    chat.set_voice(voice)
+    settings.on_change("PUSH_TO_TALK", voice.ptt_changed)
+    settings.on_change("PUSH_TO_TALK_KEY", voice.ptt_changed)
+    settings.on_change("MIC_DEVICE", voice.ptt_changed)             # another microphone: reopen it at once
+    # Push to talk: hold the key (V by default) to record. Only while Minecraft is in front and the player is not
+    # typing in her chat box.
+    ptt_key = voice_input.PushToTalkKey(on_down=voice.ptt_down, on_up=voice.ptt_up, blocked=lambda: push_to_talk_blocked(chat, voice))
+    ptt_key.start()
+
     # The STARTUP_DELAY wait now happens inside vision_loop (its own thread),
     # so the windows open immediately instead of freezing the main thread.
     logger.info("🚀 Starting vision loop thread...")
@@ -447,7 +497,7 @@ def main():
     chat_thread.start()
     
     logger.info("🎹 Starting hotkey listener...")
-    start_hotkey_listener(chat.toggle, status_window.toggle)
+    start_hotkey_listener(chat.toggle, status_window.toggle, voice.switch)
     
     logger.info("=" * 70)
     logger.info("✅ APPLICATION READY")
@@ -467,6 +517,11 @@ def main():
     finally:
         logger.info("🧹 Cleaning up...")
         app_context['running'] = False
+        try:
+            voice.cancel()                              # never leave the microphone open on the way out
+            ptt_key.stop()
+        except NameError:
+            pass
         stop_hotkey_listener()
         settings.flush()  # write any setting changed in the last moment
         _finalize_report()

@@ -64,20 +64,20 @@ if exist ".env" (
     )
 )
 
-rem --- 5. Ollama and the llava model ---
+rem --- 5. Ollama and the gemma3 model ---
 echo.
 where ollama >nul 2>nul
 if errorlevel 1 (
     echo [!] Ollama was not found. Install it from https://ollama.com
-    echo     then run:  ollama pull llava:7b
+    echo     then run:  ollama pull gemma3:4b
 ) else (
-    ollama list 2>nul | findstr /i /c:"llava:7b" >nul
+    ollama list 2>nul | findstr /i /c:"gemma3:4b" >nul
     if errorlevel 1 (
-        echo Ollama is installed but the llava:7b model is missing.
-        choice /c YN /m "Download it now, about 4.7 GB"
-        if not errorlevel 2 ollama pull llava:7b
+        echo Ollama is installed but the gemma3:4b model is missing.
+        choice /c YN /m "Download it now, about 3.3 GB"
+        if not errorlevel 2 ollama pull gemma3:4b
     ) else (
-        echo Ollama and the llava:7b model were found.
+        echo Ollama and the gemma3:4b model were found.
     )
 )
 

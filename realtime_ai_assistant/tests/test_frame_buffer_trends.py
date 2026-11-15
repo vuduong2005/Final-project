@@ -174,9 +174,10 @@ def test_new_arrival_is_not_diluted():
 
 
 def test_class_name_spellings():
-    for name in ("Cave Spider", "cave-spider", "Zombie Villager", "Creaking", "ZOMBIE"):
+    for name in ("Cave Spider", "cave-spider", "Zombie Villager", "Creaking", "ZOMBIE",
+                 "Phantom", "Zombie Piglin", "Pillager", "Warden"):            # every hostile mob is a danger
         assert run((3, 14), (2, 5), cls=name)["threat_level"] == "critical", name
-    assert run((3, 14), (2, 5), cls="Pillager")["threat_level"] == "none"   # unknown class: documented default
+    assert run((3, 14), (2, 5), cls="Oak Log")["threat_level"] == "none"       # unknown class: documented default
     assert [normalize_class(n) for n in (" Cow ", "Cave Spider", "zombie-villager", "SKELETON")] == \
            ["cow", "cave_spider", "zombie_villager", "skeleton"]
 

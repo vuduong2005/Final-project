@@ -55,7 +55,7 @@ BLOCK_CONFIDENCE_THRESHOLD = 0.4     # Blocks can be 40%+ confidence
 # ============================================================================
 
 LLAMA_API_URL = "http://localhost:11434"  # Local Ollama server endpoint
-LLAMA_MODEL_NAME = "llava:7b"      
+LLAMA_MODEL_NAME = "gemma3:4b"   # fits the 6 GB GPU fully; sees images too
 
 # ============================================================================
 # SCREENSHOT & ANALYSIS SETTINGS
@@ -68,6 +68,13 @@ SCREENSHOT_INTERVAL = 0.5
 # (More = better context, but slower)
 # IMPORTANT: FrameBuffer now handles this internally!
 SCREENSHOT_SEQUENCE_LENGTH = 1
+
+# Privacy: only ever capture the Minecraft window, and nothing at all while another window is in
+# front (a browser, chat apps, Maria's own windows). Set CAPTURE_ONLY_GAME to False to go back to
+# capturing the whole primary monitor.
+CAPTURE_ONLY_GAME = True
+GAME_WINDOW_TITLE = "Minecraft"                       # the title must start like this, then a version: "Minecraft 1.20.1"...
+GAME_PROCESS_NAMES = ("javaw.exe", "java.exe")        # ...and belong to the Java game (Bedrock is not supported)
 
 # Minimum time between AI analyses (seconds)
 # Prevents spam of responses
@@ -106,6 +113,46 @@ PROACTIVE_STREAK_SECONDS = 30
 # recently than this many seconds ago, so Maria doesn't talk over an
 # actual conversation.
 PROACTIVE_CHAT_COOLDOWN_SECONDS = 60
+
+# ============================================================================
+# MARIA'S MEMORY, PLAYER PROFILE AND WHEN SHE SPEAKS
+# ============================================================================
+
+# One shared memory for Chat Mode and Game Mode. When it is full the oldest game
+# lines go first, so the player's own messages stay.
+MEMORY_MAX_ENTRIES = 40
+MEMORY_CHAT_LINES = 8      # recent chat lines sent to the model
+MEMORY_GAME_LINES = 3      # her own recent game lines (so she does not repeat herself)
+
+# Saved between runs: nickname, standing requests, permanent watch list. Local only.
+PLAYER_PROFILE_PATH = "player_profile.json"
+# True: every time the app starts, Maria forgets the nickname, standing requests and saved watch list,
+# so each play session starts fresh. False: she keeps them in player_profile.json between sessions.
+PROFILE_RESET_EACH_SESSION = True
+PROFILE_MAX_REQUESTS = 10
+
+# Things the player asked her to watch for ("tell me if you see iron") end when the
+# player says they are good, or after this long if they forget.
+WATCH_EXPIRE_SECONDS = 900
+
+# How long before she mentions the same thing again
+ANNOUNCE_COOLDOWN_THREAT = 15
+ANNOUNCE_COOLDOWN_ORE = 45
+ANNOUNCE_COOLDOWN_WATCHED = 30
+
+# This many ores in one frame count as a vein (one combined comment)
+VEIN_MIN_COUNT = 4
+
+# What she saw recently is remembered this long (for "do you see the zombie?")
+RECENT_EVENTS_SECONDS = 180
+
+# Sampling options for her replies (Ollama /api/chat)
+LLAMA_OPTIONS = {"temperature": 0.8, "top_p": 0.95, "repeat_penalty": 1.15}
+LLAMA_MAX_TOKENS_CHAT = 120
+LLAMA_MAX_TOKENS_GAME = 45
+# How long Ollama keeps the model loaded in the GPU after her last reply. Its own default is 5 minutes, and loading
+# the model again takes 20-30 seconds, which showed up as a very slow reply after every quiet stretch.
+LLAMA_KEEP_ALIVE = "60m"
 
 # ============================================================================
 # FRAME BUFFER SETTINGS (Short-Term Memory)
@@ -173,6 +220,30 @@ TTS_VOLUME = 1.0
 # Mute: when True, Maria's lines still show in the chat window but are not spoken
 TTS_MUTED = False
 
+# Which voice style she uses (switchable live in the Status window):
+#   "now"      Voice 1 - her normal voice
+#   "livelier" Voice 2 - a bit faster and higher; danger warnings faster and louder
+#   "bright"   Voice 3 - more excited; danger warnings even more urgent
+TTS_VOICE = "now"
+
+# Which voice MODEL she speaks with (switchable live in the Status window):
+#   "amy"    the standard Piper voice
+#   "maria"  her own trained voice (maria.onnx + maria.onnx.json in this folder); it has a calm and a
+#            scared speaker, so danger warnings sound frightened and still like her.
+# If maria.onnx is missing she speaks with Amy whatever this says.
+TTS_MODEL = "amy"
+
+# --- Talking to Maria ---
+# Voice is switched on and off with the Voice button in the chat window (or Ctrl+Alt+V). It always starts OFF
+# when the app starts. While it is on, what you say becomes a chat message (turned into text on this PC;
+# nothing is sent anywhere or saved), and your voice cuts her off when she is talking.
+PUSH_TO_TALK = False           # False: the microphone stays open while voice is on. True: it records only while you HOLD the key
+PUSH_TO_TALK_KEY = "v"         # the key to hold: "v", "b", "f8" or "f9"
+MIC_DEVICE = ""                # which microphone: "" = the Windows default one, or the name of one (picked in the Status window)
+STT_MODEL = "base.en"          # speech-to-text model: "tiny.en" (fastest), "base.en", "small.en" (most accurate, slower)
+VOICE_SILENCE_SECONDS = 1.2    # a pause this long ends your phrase
+VOICE_BEEPS = True             # a short tone when she starts and stops listening
+
 # ============================================================================
 # ADVANCED SETTINGS
 # ============================================================================
@@ -182,6 +253,16 @@ MAX_REQUESTS_PER_MINUTE = 20
 
 # Request timeout (seconds)
 REQUEST_TIMEOUT = 30
+
+# --- Danger warnings: speed first ---------------------------------------------------------------
+# A warning is only worth something if it reaches the player before the mob does.
+FAST_DANGER_LINES = True            # build a danger line straight from the facts instead of waiting seconds for the language model
+THREAT_INSTANT_CONFIDENCE = 0.75    # live: a dangerous mob this sure is announced at once. Between the mob
+                                    # threshold (0.6) and this it must be seen again in the next picture (about
+                                    # 2-3 s later) so one wrong detection is not a false alarm. 0.5 = always at once.
+THREAT_CONFIRM_SECONDS = 8          # how long a first sighting waits for its second look
+ALERT_SECONDS = 10                  # after a danger was seen, look more often for this long...
+ALERT_ANALYSIS_INTERVAL = 1.0       # ...analysing a picture every this many seconds instead of MIN_ANALYSIS_INTERVAL
 
 # Retry failed requests
 RETRY_FAILED_REQUESTS = True
@@ -283,6 +364,7 @@ def _as_bool(value):
 _ADMIN_OVERRIDABLE_KEYS = {
     "ROBOFLOW_CONFIDENCE_PERCENT": int,
     "MOB_CONFIDENCE_THRESHOLD": float,
+    "THREAT_INSTANT_CONFIDENCE": float,
     "BLOCK_CONFIDENCE_THRESHOLD": float,
     "SCREENSHOT_INTERVAL": float,
     "MIN_ANALYSIS_INTERVAL": float,
@@ -290,6 +372,14 @@ _ADMIN_OVERRIDABLE_KEYS = {
     "TTS_SPEED": float,
     "TTS_VOLUME": float,
     "TTS_MUTED": _as_bool,
+    "TTS_VOICE": str,
+    "TTS_MODEL": str,
+    "PUSH_TO_TALK": _as_bool,
+    "PUSH_TO_TALK_KEY": str,
+    "MIC_DEVICE": str,
+    "STT_MODEL": str,
+    "VOICE_SILENCE_SECONDS": float,
+    "VOICE_BEEPS": _as_bool,
     "USE_GENERAL_MODEL": _as_bool,
     "USE_MOBS_MODEL": _as_bool,
     "USE_BLOCKS_MODEL": _as_bool,

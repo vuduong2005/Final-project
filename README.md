@@ -48,7 +48,7 @@ The app lives in the `realtime_ai_assistant` folder. From the repo root:
 2. Pull the vision-capable model (the name is set in `config.py`):
 
    ```bat
-   ollama pull llava:7b
+   ollama pull gemma3:4b
    ```
 
 3. Download a Piper voice. The app expects `en_US-amy-medium.onnx` and `en_US-amy-medium.onnx.json` next to `main.py`. The voice files are not in the repo.
