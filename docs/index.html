@@ -1,0 +1,233 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Maria Tester Build</title>
+<meta name="description" content="Early test build of Maria, a desktop AI companion for Minecraft. For a small group of testers.">
+<style>
+  :root {
+    --bg: #f6f7f4;
+    --surface: #ffffff;
+    --text: #1b2420;
+    --muted: #55625b;
+    --line: #dde3dd;
+    --accent: #0b7a5c;
+    --accent-text: #ffffff;
+    --warn-bg: #fff4dc;
+    --warn-line: #e3b44f;
+    --code-bg: #eef2ee;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0e1412;
+      --surface: #161e1b;
+      --text: #e8efe9;
+      --muted: #a2b0a8;
+      --line: #2a3631;
+      --accent: #2fd6a0;
+      --accent-text: #06231a;
+      --warn-bg: #2b2412;
+      --warn-line: #7a6228;
+      --code-bg: #1d2723;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0e1412;
+    --surface: #161e1b;
+    --text: #e8efe9;
+    --muted: #a2b0a8;
+    --line: #2a3631;
+    --accent: #2fd6a0;
+    --accent-text: #06231a;
+    --warn-bg: #2b2412;
+    --warn-line: #7a6228;
+    --code-bg: #1d2723;
+  }
+
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 16px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  main { max-width: 42rem; margin: 0 auto; padding: 2.5rem 16px 4rem; }
+
+  .eyebrow {
+    display: inline-block;
+    font-size: 0.8rem;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--accent);
+  }
+  h1 { font-size: 2.4rem; line-height: 1.15; margin: 0.3rem 0 0.8rem; }
+  h2 { font-size: 1.25rem; margin: 2.4rem 0 0.6rem; }
+  p { margin: 0 0 1rem; }
+  .lead { font-size: 1.1rem; color: var(--muted); }
+
+  .download {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 1.25rem;
+    margin: 1.6rem 0 0;
+  }
+  .button {
+    display: inline-block;
+    background: var(--accent);
+    color: var(--accent-text);
+    font-weight: 600;
+    text-decoration: none;
+    padding: 0.75rem 1.3rem;
+    border-radius: 8px;
+  }
+  .button:hover { filter: brightness(1.08); }
+  .button:focus-visible, a:focus-visible { outline: 3px solid var(--text); outline-offset: 3px; }
+  .download small { display: block; margin-top: 0.7rem; color: var(--muted); }
+  .download p { margin-bottom: 1rem; }
+  button.copy {
+    font: inherit;
+    font-size: 0.85rem;
+    padding: 0.1rem 0.55rem;
+    margin-left: 0.3rem;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: var(--surface);
+    color: var(--text);
+    cursor: pointer;
+  }
+  button.copy:focus-visible { outline: 3px solid var(--text); outline-offset: 2px; }
+
+  ul, ol { padding-left: 1.3rem; margin: 0 0 1rem; }
+  li { margin-bottom: 0.4rem; }
+  a { color: var(--accent); }
+  code, kbd {
+    background: var(--code-bg);
+    border-radius: 5px;
+    padding: 0.1em 0.4em;
+    font: 0.9em ui-monospace, "Cascadia Code", Consolas, monospace;
+  }
+
+  .privacy {
+    background: var(--warn-bg);
+    border: 1px solid var(--warn-line);
+    border-radius: 12px;
+    padding: 1rem 1.25rem;
+    margin-top: 2.4rem;
+  }
+  .privacy h2 { margin-top: 0; }
+  .privacy ul { margin-bottom: 0; }
+
+  footer { margin-top: 3rem; color: var(--muted); font-size: 0.9rem; }
+
+  @media (max-width: 480px) {
+    h1 { font-size: 2rem; }
+    .button { display: block; text-align: center; }
+  }
+</style>
+</head>
+<body>
+<main>
+  <span class="eyebrow">Tester build</span>
+  <h1>Maria</h1>
+  <p class="lead">A desktop AI companion that watches your Minecraft game, spots mobs, ores and hazards, warns you about danger at once, and talks with you by voice and chat.</p>
+
+  <section class="download" aria-labelledby="dl">
+    <h2 id="dl" style="margin-top:0">Request access</h2>
+    <p>The tester build is not public. I share it only with people I know. Send me a request and, if I approve it, I will reply with a private download link and your Roboflow key.</p>
+    <a class="button" id="request" href="#request-help">Request access by email</a>
+    <small id="request-help">Windows only. Your mail app opens with the message filled in. If it does not, write to <span id="address">(turn on JavaScript to see the address)</span> <button type="button" class="copy" id="copy" hidden>Copy address</button></small>
+  </section>
+
+  <h2>What she does</h2>
+  <ul>
+    <li>Watches the Minecraft window and warns you about dangerous mobs and hazards right away.</li>
+    <li>Chats with you as a cheerful friend, and can look at your screen when you ask her to.</li>
+    <li>Listens to your voice (optional): talk over her to stop her, or hold a key to talk.</li>
+    <li>Shows a small face on screen that moves when she speaks.</li>
+  </ul>
+
+  <h2>What you need</h2>
+  <ul>
+    <li>Windows 10 or 11, and Minecraft.</li>
+    <li><a href="https://www.python.org/downloads/">Python 3.12 or newer</a>. Tick “Add python.exe to PATH” when you install it.</li>
+    <li><a href="https://ollama.com">Ollama</a> with the <code>gemma3:4b</code> model (about 3.3 GB). The setup script can download it for you.</li>
+    <li>A graphics card with about 6 GB of video memory is recommended, so the language model runs fully on the GPU.</li>
+    <li>A Roboflow API key. I will send it to you privately, so please don’t share it.</li>
+    <li>Optional, for talking to her: a microphone.</li>
+  </ul>
+
+  <h2>Set up in 5 steps</h2>
+  <ol>
+    <li>Request access above and wait for my reply with the download link and your key.</li>
+    <li>Unzip the download anywhere.</li>
+    <li>Double-click <code>setup.bat</code> and follow the prompts. It installs everything and asks for your key.</li>
+    <li>Make sure Ollama is running (look for its icon in the system tray).</li>
+    <li>Double-click <code>run.bat</code>, then switch to Minecraft within 5 seconds.</li>
+  </ol>
+
+  <h2>While it runs</h2>
+  <ul>
+    <li><kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>G</kbd> opens the chat window. Ask “can you see my house?” to try the vision step.</li>
+    <li><kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>S</kbd> opens the status window with live settings: voice volume, speed and style, microphone, push to talk, and detection thresholds. Changes apply right away.</li>
+    <li><kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>V</kbd> turns voice input on or off (or use the Voice button in the chat window). It always starts off.</li>
+  </ul>
+
+  <section class="privacy" aria-labelledby="priv">
+    <h2 id="priv">Privacy: please read</h2>
+    <ul>
+      <li>Maria captures <strong>only the Minecraft window</strong> every few seconds, never the rest of your screen. If the game is closed or minimised, she captures nothing.</li>
+      <li>Those pictures of the game are sent to Roboflow, a hosted service, for detection.</li>
+      <li>The last captures are also saved on your PC in the <code>debug_captures</code> folder.</li>
+      <li>Your voice is turned into text on your own PC. The sound is never saved or sent anywhere.</li>
+      <li>Stop Maria when you’re done playing.</li>
+    </ul>
+  </section>
+
+  <h2>What to try and send back</h2>
+  <ul>
+    <li>Does she notice mobs, ores and lava? Is anything wrong or missing?</li>
+    <li>Do the settings in the status window do what they say?</li>
+    <li>How slow is it on your PC? Danger warnings should come at once; a chat reply takes a second or two.</li>
+    <li>If you use voice: does she understand you, and does talking over her stop her?</li>
+    <li>Send me what broke (copy any error text from the black window), your PC (CPU, GPU, RAM), and the newest file in the <code>logs</code> folder, if there is one. That file lists what Maria saw and said, plus any messages you typed to her, so read it first.</li>
+  </ul>
+
+  <footer>
+    Early test build for a small group. Please don’t share the download or the key.
+    <a href="https://github.com/vuduong2005/Final-project">Project on GitHub</a>
+  </footer>
+</main>
+<script>
+  // The address is put together here instead of being written in the HTML, so
+  // simple scrapers that only read the page source do not collect it.
+  (function () {
+    var address = "duongtrieuvu19082005" + "@" + "gmail.com";
+    var subject = "Maria tester access request";
+    var body = "Hi, I would like to test Maria.\n\n" +
+               "Name:\n" +
+               "Who you are (for example recruiter, friend, developer):\n" +
+               "PC (CPU, GPU, RAM):\n";
+
+    document.getElementById("request").href =
+      "mailto:" + address + "?subject=" + encodeURIComponent(subject) +
+      "&body=" + encodeURIComponent(body);
+    document.getElementById("address").textContent = address;
+
+    var copy = document.getElementById("copy");
+    if (navigator.clipboard) {
+      copy.hidden = false;
+      copy.addEventListener("click", function () {
+        navigator.clipboard.writeText(address).then(function () {
+          copy.textContent = "Copied";
+        }, function () {});
+      });
+    }
+  })();
+</script>
+</body>
+</html>
