@@ -1,4 +1,5 @@
-"""Maria as pixel art, drawn in code: 64x64 blocks, three moods.
+"""Maria as pixel art: 64x64 blocks, three moods. The frames come from maria_sprite_sheet.png
+(11 frames in a row, in the order of _frame_order()); the code below can still draw them.
 
   idle  - eyes open, small smile (and a blink frame)
   talk  - happy closed eyes, blush, an open smiling mouth that follows her voice
@@ -8,10 +9,12 @@ She is laid out on an 800x800 design grid, drawn four times larger than needed, 
 block takes the most common flat colour of the area it covers. One frame takes about 0.1 s to
 draw, so build_frames() draws them all once and the overlay only picks between them.
 """
+import os
 from typing import Dict, Tuple
 
 from PIL import Image, ImageChops, ImageDraw, ImageFilter
 
+SHEET_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "maria_sprite_sheet.png")
 DESIGN = 800
 CELLS = 64                     # blocks across and down
 TALK_STEPS = 6                 # mouth positions while talking (0 = closed smile)
@@ -290,14 +293,40 @@ def frame_key(mood: str, level: float = 0.0, blink: bool = False) -> Tuple:
     return ("idle", bool(blink))
 
 
-def build_frames() -> Dict[Tuple, Image.Image]:
-    """Every frame the overlay can show (about 1.5 s of drawing, done once)."""
+def _frame_order():
+    """The keys of every frame, in the order they sit in the sprite sheet (left to right)."""
+    return ([("idle", False), ("idle", True)] + [("talk", i) for i in range(TALK_STEPS)]
+            + [("alarm", i) for i in range(ALARM_STEPS)])
+
+
+def _frames_from_sheet() -> Dict[Tuple, Image.Image]:
+    """Cut the hand-cleaned sprite sheet (one row of CELLS x CELLS frames) into frames."""
+    sheet = Image.open(SHEET_PATH).convert("RGBA")
+    keys = _frame_order()
+    if sheet.size != (CELLS * len(keys), CELLS):
+        raise ValueError("sprite sheet is %dx%d, expected %dx%d" % (*sheet.size, CELLS * len(keys), CELLS))
+    return {k: sheet.crop((i * CELLS, 0, (i + 1) * CELLS, CELLS)) for i, k in enumerate(keys)}
+
+
+def _frames_from_code() -> Dict[Tuple, Image.Image]:
+    """Draw every frame with the code above (about 1.5 s). Used when the sheet file is missing."""
     frames = {("idle", False): render(), ("idle", True): render(blink=True)}
     for i in range(TALK_STEPS):
         frames[("talk", i)] = render(i / (TALK_STEPS - 1), mood="talk")
     for i in range(ALARM_STEPS):
         frames[("alarm", i)] = render(i / (ALARM_STEPS - 1), mood="alarm")
     return frames
+
+
+def build_frames() -> Dict[Tuple, Image.Image]:
+    """Every frame the overlay can show: read from maria_sprite_sheet.png, or drawn by code if
+    that file is missing or does not fit."""
+    if os.path.isfile(SHEET_PATH):
+        try:
+            return _frames_from_sheet()
+        except (OSError, ValueError):
+            pass
+    return _frames_from_code()
 
 
 def with_glow(sprite: Image.Image, mood: str, level: float) -> Image.Image:

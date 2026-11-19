@@ -22,6 +22,7 @@ APP_FILES = [
     ".env.example",
     "en_US-amy-medium.onnx",        # Piper voice (about 63 MB)
     "en_US-amy-medium.onnx.json",
+    "ui/maria_sprite_sheet.png",      # Maria's pixel-art frames (the .py files of ui/ are taken separately)
     "requirements-voice.txt",         # optional libraries for Voice mode (the README tells testers how to install them)
 ]
 APP_FOLDERS = ["core", "core/_private", "ui", "utils"]  # only *.py files are taken from these
